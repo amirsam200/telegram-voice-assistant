@@ -49,6 +49,8 @@ class Intent(str, enum.Enum):
 
 
 class RunStatus(str, enum.Enum):
+    running = "running"
+    clarification = "clarification"  # the agent asked the user a question instead of proposing
     pending_confirmation = "pending_confirmation"
     confirmed = "confirmed"
     executed = "executed"
@@ -106,9 +108,16 @@ class AgentRun(TimestampMixin, Base):
     __tablename__ = "agent_runs"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
     voice_message_id: Mapped[int | None] = mapped_column(
         ForeignKey("voice_messages.id", ondelete="SET NULL"), index=True
     )
+    # The transcript or typed text the run started from, and what the bot replied.
+    input_text: Mapped[str | None] = mapped_column(Text)
+    reply_text: Mapped[str | None] = mapped_column(Text)
+    prompt_version: Mapped[str | None] = mapped_column(String(32))
     intent: Mapped[Intent] = mapped_column(_enum(Intent, "agent_intent"), nullable=False)
     action_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     status: Mapped[RunStatus] = mapped_column(
@@ -119,6 +128,9 @@ class AgentRun(TimestampMixin, Base):
     )
     model: Mapped[str | None] = mapped_column(String(100))
     tokens: Mapped[int | None] = mapped_column(Integer)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer)
+    steps: Mapped[int | None] = mapped_column(Integer)
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
 
