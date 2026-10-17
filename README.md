@@ -4,8 +4,28 @@ A personal Telegram assistant: send a Persian voice message, and it schedules a
 calendar event or sends an email on your behalf after you confirm.
 See [docs/SPEC.md](docs/SPEC.md) for the full spec.
 
-Status: **01 Foundation** (git, Docker, Telegram bot, Resend, database).
-The agent (speech to text, DeepSeek, tools) arrives in step 02.
+Status: **02 Agent** (speech to text, DeepSeek agent, tools, confirmation, memory) on top of
+01 Foundation (git, Docker, Telegram bot, Resend, database).
+
+## How a message is handled
+
+1. **Speech to text**: the voice note is converted with ffmpeg to 16 kHz mono WAV and transcribed by
+   Vosk (`vosk-model-small-fa-0.5`, bundled in the image). The transcript and confidence are stored in
+   `voice_messages` and the audio is deleted. Empty or low-confidence transcripts
+   (below `STT_MIN_CONFIDENCE`) get a Persian request to repeat. Text messages skip this step.
+2. **Agent**: DeepSeek (any OpenAI-compatible API) with a versioned system prompt
+   (`app/agent/prompts/system_v1.md`), at most 6 steps. The context holds the Tehran date and time with a
+   Jalali day table, preferences from `memory_facts`, contacts named in the transcript and the last
+   5 messages. While planning the model may only call read-only tools (`get_current_datetime`,
+   `find_contact`, `list_calendar_events`). It must end with exactly one `ScheduleAction`,
+   `EmailAction`, or a clarifying question in Persian. Proposals are sent back to the model when they
+   use an email address that is not a contact or in the user's words, are in the past, or are not in Persian.
+3. **Confirmation**: the bot shows a Persian preview with ✅ تأیید / ✏️ ویرایش / ❌ لغو. Only Confirm runs
+   `create_calendar_event` or `send_email`. Each run executes at most once (atomic status change and one
+   idempotency key per run), so a double tap never acts twice.
+4. **Memory**: after an executed action, new contacts and the usual meeting length are saved through the
+   `save_contact` and `remember` tools. Every run and tool call is logged in `agent_runs` and
+   `tool_calls` with tokens and latency.
 
 ## Setup
 
@@ -17,6 +37,8 @@ The agent (speech to text, DeepSeek, tools) arrives in step 02.
      it can then only send to your Resend account's email).
    - `OWNER_NAME`, `OWNER_EMAIL` for the seed script and the test email.
    - `DATABASE_URL` must use the same user, password and database as `POSTGRES_*`, with host `db`.
+   - `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL`: any OpenAI-compatible endpoint, e.g.
+     `https://api.deepseek.com` with a DeepSeek key, or `https://api.avalai.ir/v1` with an AvalAI key.
 
 ## Google Calendar setup (one time)
 
@@ -33,8 +55,16 @@ Events are created in the owner's Google Calendar with OAuth 2.0 (scope `calenda
    sign in, allow access, and the script writes `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and
    `GOOGLE_REFRESH_TOKEN` into `.env`. Leave out `--write-env` to print the lines instead.
 
+   On Windows PowerShell:
+
+   ```powershell
+   .\scripts\google_auth.ps1
+   ```
+
+   Elsewhere:
+
    ```bash
-   docker compose run --rm -p 127.0.0.1:8765:8765 -v ./credentials.json:/app/credentials.json:ro -v ./.env:/app/.env migrate python scripts/google_auth.py --write-env
+   docker compose run --rm -p 127.0.0.1:8765:8765 -v ./credentials.json:/app/credentials.json:ro -v ./.env:/app/.env -v ./scripts:/app/scripts migrate python scripts/google_auth.py --write-env
    ```
 5. Set `GOOGLE_CALENDAR_ID` (`primary` for your main calendar) and restart: `docker compose up -d --force-recreate`.
 
@@ -50,6 +80,19 @@ docker compose up --build
 This starts `db` (PostgreSQL 16), runs `migrate` once (`alembic upgrade head` plus the seed
 script), then starts `bot` (Telegram long polling) and `api` (FastAPI on
 http://127.0.0.1:8000, health check at `/health`).
+
+## Tests
+
+Tests run in the container against a separate `<db>_test` database. Offline tests use a scripted
+LLM; tests marked `llm` (10 Persian sample transcripts plus a memory check) call the real model.
+
+```bash
+docker compose run --rm migrate pytest -m "not llm"
+```
+
+```bash
+docker compose run --rm migrate pytest -m llm
+```
 
 ## Useful commands
 
@@ -81,8 +124,11 @@ docker compose run --rm --build -v ./migrations:/app/migrations migrate alembic 
 ## Layout
 
 ```
-app/bot     Telegram bot          app/db      models, session, seed
-app/tools   Resend email client   app/api     FastAPI
-app/stt, app/agent, app/mcp       placeholders for later steps
-migrations/ Alembic               docs/SPEC.md  spec
+app/bot     Telegram bot, confirmation buttons
+app/stt     ffmpeg + Vosk speech to text
+app/agent   provider, system prompt, agent loop, context, executor, memory
+app/tools   tool registry, Google Calendar, Resend
+app/db      models, session, seed       app/api   FastAPI     app/mcp  (step 03)
+migrations/ Alembic                     scripts/  google_auth.py / .ps1
+tests/      pytest                      docs/SPEC.md  spec
 ```
