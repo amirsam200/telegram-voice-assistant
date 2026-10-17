@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+.git
+.venv
+venv
+__pycache__
+*.pyc
+data
+models
+*.ogg
+*.wav
