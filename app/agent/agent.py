@@ -104,7 +104,7 @@ def run_agent(
     session.commit()
     ctx.run_id = run.id
 
-    context = build_context(session, user, text, ctx.now(), edit_of=edit_of)
+    context = build_context(session, user, text, ctx.now(), edit_of=edit_of, exclude_run_id=run.id)
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "system", "content": context.text},

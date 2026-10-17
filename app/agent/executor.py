@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.agent import fa
 from app.agent.actions import Action, EmailAction, ScheduleAction
+from app.agent.memory import learn_from_executed
 from app.db.models import AgentRun, AuditEvent, CalendarEvent, Email, RunStatus
 from app.tools.registry import ToolContext, ToolError, ToolInProgress, execute
 
@@ -82,6 +83,7 @@ def confirm_and_execute(session: Session, run_id: int, user_id: int, ctx: ToolCo
     run.status = RunStatus.executed
     session.add(AuditEvent(event_type="action_executed", actor=actor, payload_json={"run_id": run.id}))
     session.commit()
+    learn_from_executed(session, action, ctx)
     return ExecutionResult(True, message)
 
 
