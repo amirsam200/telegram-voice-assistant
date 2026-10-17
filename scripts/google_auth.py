@@ -12,6 +12,7 @@ import argparse
 import json
 import re
 import sys
+import webbrowser
 from pathlib import Path
 
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -53,12 +54,18 @@ def main() -> int:
     client = json.loads(creds_path.read_text(encoding="utf-8"))
     client = client.get("installed") or client.get("web") or {}
 
+    try:
+        webbrowser.get()
+        can_open = True
+    except webbrowser.Error:  # e.g. inside Docker: just print the URL
+        can_open = False
+
     flow = InstalledAppFlow.from_client_secrets_file(str(creds_path), SCOPES)
     credentials = flow.run_local_server(
         host="localhost",
         bind_addr="0.0.0.0",
         port=PORT,
-        open_browser=True,
+        open_browser=can_open,
         access_type="offline",
         prompt="consent",
         authorization_prompt_message="Open this URL in your browser and allow calendar access:\n{url}\n",
