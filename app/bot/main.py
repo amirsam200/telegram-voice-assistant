@@ -6,6 +6,7 @@ from pathlib import Path
 
 from sqlalchemy import select
 from telegram import Update
+from telegram.constants import ChatAction
 from telegram.ext import (
     Application,
     ApplicationHandlerStop,
@@ -19,6 +20,7 @@ from telegram.ext import (
 from app.config import get_settings
 from app.db.models import AuditEvent, User, VoiceMessage
 from app.db.session import session_scope
+from app.stt.vosk_stt import transcribe_file
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,8 @@ HELP_TEXT = (
 )
 
 ERROR_TEXT = "متأسفم، خطایی رخ داد. لطفاً دوباره تلاش کنید."
+
+REPEAT_TEXT = "متأسفم، صدایتان را واضح متوجه نشدم. لطفاً آرام‌تر و شمرده‌تر دوباره بگویید."
 
 
 def _actor(update: Update) -> str:
@@ -97,6 +101,14 @@ def _store_voice(
         return voice.id
 
 
+def _save_transcript(voice_id: int, text: str, confidence: float) -> None:
+    with session_scope() as session:
+        voice = session.get(VoiceMessage, voice_id)
+        voice.transcript = text
+        voice.stt_confidence = confidence
+        voice.file_path = None
+
+
 async def voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     tg_user = update.effective_user
@@ -118,10 +130,19 @@ async def voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         tg_voice.duration,
     )
     logger.info("Stored voice message %s (%ss)", voice_id, tg_voice.duration)
-    await message.reply_text(
-        f"پیام صوتی شما ({tg_voice.duration} ثانیه) دریافت و ذخیره شد. "
-        "پردازش آن به‌زودی اضافه می‌شود."
-    )
+    await context.bot.send_chat_action(message.chat_id, ChatAction.TYPING)
+
+    try:
+        result = await asyncio.to_thread(transcribe_file, target)
+    finally:
+        # Audio is deleted after transcription, whether or not it succeeded.
+        target.unlink(missing_ok=True)
+    await asyncio.to_thread(_save_transcript, voice_id, result.text, result.confidence)
+
+    if not result.is_usable(get_settings().stt_min_confidence):
+        await message.reply_text(REPEAT_TEXT)
+        return
+    await message.reply_text(f"متن پیام شما:\n«{result.text}»")
 
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:

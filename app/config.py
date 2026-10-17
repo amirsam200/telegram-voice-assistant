@@ -19,7 +19,25 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://assistant:assistant@db:5432/assistant"
 
+    # Speech to text
     voice_dir: str = "/app/data/voice"
+    vosk_model_path: str = "/opt/vosk-model"
+    stt_min_confidence: float = 0.5
+
+    # LLM (OpenAI-compatible)
+    deepseek_api_key: str = ""
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_model: str = "deepseek-chat"
+    llm_timeout_s: float = 60.0
+    llm_max_retries: int = 3
+
+    # Google Calendar
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_refresh_token: str = ""
+    google_calendar_id: str = "primary"
+
+    timezone: str = "Asia/Tehran"
     debug: bool = False
 
     @property
