@@ -127,7 +127,9 @@ class ToolCall(TimestampMixin, Base):
     __tablename__ = "tool_calls"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id", ondelete="CASCADE"), index=True)
+    run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="CASCADE"), index=True
+    )
     tool_name: Mapped[str] = mapped_column(String(100), nullable=False)
     arguments_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     result_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
@@ -135,6 +137,7 @@ class ToolCall(TimestampMixin, Base):
         String(32), default="pending", server_default="pending", nullable=False
     )
     idempotency_key: Mapped[str | None] = mapped_column(String(128), unique=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
 
 
 class CalendarEvent(TimestampMixin, Base):

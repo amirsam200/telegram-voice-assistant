@@ -18,6 +18,29 @@ The agent (speech to text, DeepSeek, tools) arrives in step 02.
    - `OWNER_NAME`, `OWNER_EMAIL` for the seed script and the test email.
    - `DATABASE_URL` must use the same user, password and database as `POSTGRES_*`, with host `db`.
 
+## Google Calendar setup (one time)
+
+Events are created in the owner's Google Calendar with OAuth 2.0 (scope `calendar.events`).
+
+1. In [Google Cloud Console](https://console.cloud.google.com/) create a project and enable the
+   **Google Calendar API**.
+2. **OAuth consent screen**: user type *External*, fill in the app name, and add your own Google
+   account under **Test users**.
+3. **Credentials → Create credentials → OAuth client ID → Desktop app**. Download the JSON and save it
+   as `credentials.json` in the project root (it is git-ignored; on Windows check it is not
+   `credentials.json.json`).
+4. Run the one-time auth script. It prints a Google URL (and opens it when a browser is available);
+   sign in, allow access, and the script writes `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and
+   `GOOGLE_REFRESH_TOKEN` into `.env`. Leave out `--write-env` to print the lines instead.
+
+   ```bash
+   docker compose run --rm -p 127.0.0.1:8765:8765 -v ./credentials.json:/app/credentials.json:ro -v ./.env:/app/.env migrate python scripts/google_auth.py --write-env
+   ```
+5. Set `GOOGLE_CALENDAR_ID` (`primary` for your main calendar) and restart: `docker compose up -d --force-recreate`.
+
+Events use the Asia/Tehran time zone, include attendees, and are created with `sendUpdates=all`, so
+guests get Google's invitation email.
+
 ## Run
 
 ```bash
