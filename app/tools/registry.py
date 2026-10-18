@@ -230,6 +230,12 @@ def list_calendar_events(ctx: ToolContext, args: DateArgs) -> dict:
     return {"date": args.date.isoformat(), "events": events}
 
 
+def upcoming_events(ctx: ToolContext, days: int = 7) -> list[dict]:
+    """Events from now until `days` ahead (used by the MCP resource)."""
+    now = ctx.now()
+    return _calendar(ctx).list_events(now, now + dt.timedelta(days=days))
+
+
 def create_calendar_event(ctx: ToolContext, args: CreateEventArgs, idempotency_key: str) -> dict:
     start = dt.datetime.combine(args.date, args.time, tzinfo=fa.TEHRAN)
     return _calendar(ctx).create_event(

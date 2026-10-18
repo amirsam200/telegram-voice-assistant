@@ -15,3 +15,7 @@ google-auth-oauthlib==1.2.2
 requests==2.32.3
 pytest==8.3.5
 email-validator==2.2.0
+mcp==1.9.4
+# mcp pulls in Starlette; keep the version FastAPI 0.115 supports
+starlette==0.46.2
+sse-starlette==3.0.3

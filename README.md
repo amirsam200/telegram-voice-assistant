@@ -120,6 +120,41 @@ docs at `/docs` only when `DEBUG=true`.
 curl -H "X-API-Key: $ADMIN_API_KEY" "http://127.0.0.1:8000/runs?status=failed&limit=5"
 ```
 
+## MCP server
+
+`app/mcp` exposes the agent's own tools over MCP (official Python SDK, stdio transport):
+`find_contact`, `list_calendar_events`, `create_calendar_event`, `send_email`, and the resource
+`calendar://upcoming` (events for the next 7 days). The tools run through the same registry as the
+agent, so arguments are validated and every call lands in `tool_calls`. They act for the owner.
+
+`create_calendar_event` and `send_email` do nothing unless called with `confirm: true`; without it
+they return a preview. Every write attempt (refused, executed or failed) is recorded in
+`audit_events` with actor `mcp`. Passing the same `request_id` again never acts twice.
+
+The stack must be running (`docker compose up -d`); the client starts the server with
+`docker compose run --rm -i --no-deps mcp`.
+
+**Claude Desktop**: Settings → Developer → Edit Config, add the server to
+`claude_desktop_config.json` (use your own path to `docker-compose.yml`) and restart Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "voice-assistant": {
+      "command": "docker",
+      "args": ["compose", "-f", "E:\\projects\\voice-assistant\\docker-compose.yml",
+               "run", "--rm", "-i", "--no-deps", "mcp"]
+    }
+  }
+}
+```
+
+**VS Code / Cursor and other IDEs**: add the same `command` and `args` as a stdio server in the
+IDE's MCP settings (for VS Code, `.vscode/mcp.json` with `"servers": {"voice-assistant": {"type":
+"stdio", "command": "docker", "args": [...]}}`).
+
+Try it with the MCP Inspector: `npx @modelcontextprotocol/inspector docker compose run --rm -i --no-deps mcp`.
+
 ## Tests
 
 Tests run in the container against a separate `<db>_test` database. Offline tests use a scripted
@@ -167,7 +202,7 @@ app/bot     Telegram bot, confirmation buttons
 app/stt     ffmpeg + Vosk speech to text
 app/agent   provider, system prompt, agent loop, context, executor, memory, contacts
 app/tools   tool registry, Google Calendar, Gmail, Resend
-app/db      models, session, seed       app/api   FastAPI     app/mcp  (step 03)
+app/db      models, session, seed       app/api   FastAPI admin API   app/mcp  MCP server
 migrations/ Alembic                     scripts/  google_auth.py / .ps1
 tests/      pytest                      docs/SPEC.md  spec
 ```

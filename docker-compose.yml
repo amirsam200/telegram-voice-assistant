@@ -50,6 +50,15 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # MCP server over stdio, started by an MCP client (see README); not part of `docker compose up`.
+  #   docker compose run --rm -i --no-deps mcp
+  mcp:
+    <<: *app
+    profiles: ["mcp"]
+    restart: "no"
+    stdin_open: true
+    command: ["python", "-m", "app.mcp"]
+
 volumes:
   pgdata:
   voice_data:
