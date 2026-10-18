@@ -187,6 +187,18 @@ Access: only the owner, with a password. Set it up once:
    read-only transactions).
 3. `docker compose up -d`.
 
+**Production on a subdomain** (e.g. `usage.example.com`) with Caddy and automatic HTTPS:
+
+1. DNS: add an **A record** `usage` → the server's public IPv4 address (and an **AAAA record**
+   for its IPv6 address, if it has one). For the full name `usage.example.com`, the record lives in
+   the `example.com` zone. Wait until `nslookup usage.example.com` returns the server's IP.
+2. Open ports 80 and 443 (TCP, and 443/UDP for HTTP/3) on the server's firewall; Let's Encrypt
+   uses port 80 or 443 to issue the certificate.
+3. In `.env`: `DASHBOARD_HOST=usage.example.com` and `DASHBOARD_COOKIE_SECURE=true`.
+4. `docker compose --profile proxy up -d`. Caddy (`deploy/Caddyfile`) gets and renews the
+   certificate, redirects HTTP to HTTPS and adds HSTS and other security headers; the dashboard
+   itself stays bound to 127.0.0.1:8080, so the only public way in is the proxy (plus sign-in).
+
 The session cookie is signed, `SameSite=Strict`, 12 hours; sign-in attempts are rate limited.
 The run list and CSV show only the first 80 characters of a transcript; full email bodies appear
 only on a run's detail page. API keys and audio are never shown.

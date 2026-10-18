@@ -1,0 +1,18 @@
+# Reverse proxy for the dashboard subdomain with automatic HTTPS (Let's Encrypt / ZeroSSL).
+# DASHBOARD_HOST comes from .env, e.g. usage.example.com. Its DNS A (and AAAA) record must point
+# to this server, and ports 80 and 443 must be reachable for the certificate challenge.
+
+{$DASHBOARD_HOST} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+
+	reverse_proxy dashboard:8080
+}

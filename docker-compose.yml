@@ -63,6 +63,25 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # Production only: HTTPS reverse proxy for the dashboard on DASHBOARD_HOST.
+  #   docker compose --profile proxy up -d
+  proxy:
+    image: caddy:2.8.4-alpine
+    profiles: ["proxy"]
+    restart: unless-stopped
+    environment:
+      DASHBOARD_HOST: ${DASHBOARD_HOST:-}  # must be set before starting the proxy profile
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - dashboard
+
   # MCP server over stdio, started by an MCP client (see README); not part of `docker compose up`.
   #   docker compose run --rm -i --no-deps mcp
   mcp:
@@ -75,3 +94,5 @@ services:
 volumes:
   pgdata:
   voice_data:
+  caddy_data:
+  caddy_config:
