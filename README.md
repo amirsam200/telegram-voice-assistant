@@ -155,6 +155,17 @@ IDE's MCP settings (for VS Code, `.vscode/mcp.json` with `"servers": {"voice-ass
 
 Try it with the MCP Inspector: `npx @modelcontextprotocol/inspector docker compose run --rm -i --no-deps mcp`.
 
+## Operations
+
+- **Logs** are JSON lines on stderr (`docker compose logs -f bot api`). Each line from the agent,
+  executor and tools carries the same `run_id` as the `agent_runs` row; MCP calls use `mcp-<id>`.
+  Users only see short Persian messages; details stay in the logs.
+- **Limits**: `RATE_LIMIT_PER_MINUTE` messages per Telegram user (button taps are not counted)
+  and voice messages up to `MAX_VOICE_SECONDS` (60).
+- **Voice download** from Telegram is tried 3 times with exponential backoff (1 s, 2 s).
+- **Audio** is deleted right after transcription; a background job also removes any leftover
+  audio older than `AUDIO_MAX_AGE_S` (1 hour) every `AUDIO_CLEANUP_INTERVAL_S`.
+
 ## Tests
 
 Tests run in the container against a separate `<db>_test` database. Offline tests use a scripted

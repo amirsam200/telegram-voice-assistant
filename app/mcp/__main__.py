@@ -1,15 +1,11 @@
 """Run the MCP server over stdio: python -m app.mcp
 
-stdout carries the MCP protocol, so logs go to stderr only.
+stdout carries the MCP protocol, so logs go to stderr only (JSON lines).
 """
 
-import logging
-import sys
-
+from app.logging_setup import configure_logging
 from app.mcp.server import create_server
 
-logging.basicConfig(stream=sys.stderr, level=logging.INFO,
-                    format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-logging.getLogger("httpx").setLevel(logging.WARNING)
-
+# Before create_server: FastMCP only adds its own log handler when none is configured.
+configure_logging()
 create_server().run("stdio")

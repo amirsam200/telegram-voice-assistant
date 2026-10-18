@@ -16,6 +16,7 @@ from app.agent.contacts import with_previous_email
 from app.agent.context import build_context
 from app.agent.provider import LLMError, LLMProvider
 from app.db.models import AgentRun, Intent, RunStatus, User
+from app.logging_setup import set_run_id
 from app.tools.registry import TOOLS, ToolContext, ToolError, execute
 
 logger = logging.getLogger(__name__)
@@ -111,6 +112,8 @@ def run_agent(
     session.add(run)
     session.commit()
     ctx.run_id = run.id
+    set_run_id(run.id)
+    logger.info("Agent run started (%d chars)", len(text))
 
     context = build_context(session, user, text, ctx.now(), edit_of=edit_of, exclude_run_id=run.id)
     messages: list[dict[str, Any]] = [
@@ -186,6 +189,8 @@ def run_agent(
     if edit_of is not None and edit_of.status == RunStatus.pending_confirmation:
         edit_of.status = RunStatus.rejected
     session.commit()
+    logger.info("Agent run finished: %s, intent %s, %d steps, %d tokens, %d ms",
+                run.status.value, run.intent.value, steps, run.tokens, run.latency_ms)
     if error is not None:
         raise LLMError(error)
     if result.action is None and result.question is None:

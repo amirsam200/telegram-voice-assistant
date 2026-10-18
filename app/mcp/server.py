@@ -9,6 +9,7 @@ The tools act for the owner (the first ID in ALLOWED_USER_IDS).
 """
 
 import json
+import logging
 import uuid
 from collections.abc import Callable
 from typing import Annotated, Any
@@ -21,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.agent import fa
 from app.config import get_settings
 from app.db.models import AuditEvent, User
+from app.logging_setup import log_run
 from app.tools.google_calendar import CalendarClient
 from app.tools.registry import EmailSender, ToolContext, ToolError, execute, upcoming_events
 
@@ -30,6 +32,8 @@ INSTRUCTIONS = (
     "preview to the user, and repeat the call with confirm=true only after the user agrees."
 )
 UPCOMING_URI = "calendar://upcoming"
+
+logger = logging.getLogger(__name__)
 
 
 class McpToolError(RuntimeError):
@@ -63,6 +67,10 @@ def create_server(
         session.commit()
 
     def _read(name: str, args: dict[str, Any]) -> dict:
+        with log_run(f"mcp-{uuid.uuid4().hex[:12]}"):
+            return _read_inner(name, args)
+
+    def _read_inner(name: str, args: dict[str, Any]) -> dict:
         with session_factory() as session:
             try:
                 return execute(_context(session), name, args)
@@ -70,6 +78,11 @@ def create_server(
                 raise McpToolError(str(exc)) from exc
 
     def _write(name: str, args: dict[str, Any], confirm: bool, request_id: str | None) -> dict:
+        with log_run(f"mcp-{uuid.uuid4().hex[:12]}"):
+            logger.info("MCP %s called (confirm=%s)", name, confirm)
+            return _write_inner(name, args, confirm, request_id)
+
+    def _write_inner(name: str, args: dict[str, Any], confirm: bool, request_id: str | None) -> dict:
         with session_factory() as session:
             ctx = _context(session)
             if not confirm:

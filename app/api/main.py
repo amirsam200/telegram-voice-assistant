@@ -4,7 +4,9 @@ GET /health is public. Every other endpoint needs the ADMIN_API_KEY in the X-API
 no key configured they all answer 401. OpenAPI docs are served only when DEBUG is on.
 """
 
+import contextlib
 import datetime as dt
+import logging
 import secrets
 from collections.abc import Iterator
 from typing import Annotated, Any
@@ -19,6 +21,7 @@ from app.agent.executor import retry_failed
 from app.api import schemas
 from app.api.health import DEFAULT_CHECKS, HealthChecker
 from app.config import get_settings
+from app.logging_setup import configure_logging, log_run
 from app.db.models import (
     AgentRun,
     AuditEvent,
@@ -92,10 +95,17 @@ def _owner_id(session: Session) -> int:
 # --- app -----------------------------------------------------------------------------------------
 
 
+@contextlib.asynccontextmanager
+async def _lifespan(app: FastAPI):
+    configure_logging(logging.DEBUG if get_settings().debug else logging.INFO)
+    yield
+
+
 def create_app() -> FastAPI:
     debug = get_settings().debug
     app = FastAPI(
         title="Persian Voice Assistant API",
+        lifespan=_lifespan,
         docs_url="/docs" if debug else None,
         redoc_url="/redoc" if debug else None,
         openapi_url="/openapi.json" if debug else None,
@@ -154,7 +164,8 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="run not found")
         if run.status != RunStatus.failed or run.action_json is None:
             raise HTTPException(status_code=409, detail=f"only failed actions can be retried (status: {run.status.value})")
-        result = retry_failed(session, run_id, ctx, actor="api:admin")
+        with log_run(run_id):
+            result = retry_failed(session, run_id, ctx, actor="api:admin")
         if result is None:  # someone else retried it first
             raise HTTPException(status_code=409, detail="run is no longer failed")
         session.refresh(run)

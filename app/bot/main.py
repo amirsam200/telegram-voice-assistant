@@ -8,11 +8,13 @@ import asyncio
 import logging
 import re
 from functools import lru_cache
+from math import ceil
 from pathlib import Path
 
 from sqlalchemy import select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction
+from telegram.error import BadRequest, NetworkError
 from telegram.ext import (
     Application,
     ApplicationHandlerStop,
@@ -24,14 +26,16 @@ from telegram.ext import (
     filters,
 )
 
-from app.agent import contacts
+from app.agent import contacts, fa
 from app.agent.actions import AddContactAction
 from app.agent.agent import run_agent
 from app.agent.executor import cancel, confirm_and_execute, preview
 from app.agent.provider import DeepSeekProvider, LLMError
+from app.bot.limits import RateLimiter, delete_old_audio, retry_async
 from app.config import get_settings
 from app.db.models import AgentRun, AuditEvent, RunStatus, User, VoiceMessage
 from app.db.session import SessionLocal, session_scope
+from app.logging_setup import configure_logging, set_run_id
 from app.stt.vosk_stt import SttError, transcribe_file
 from app.tools.registry import ToolContext
 
@@ -68,6 +72,11 @@ LLM_DOWN_TEXT = "سرویس هوش مصنوعی فعلاً در دسترس نی�
 STT_FAILED_TEXT = "متأسفم، تبدیل صدا به متن ناموفق بود. لطفاً دوباره بفرستید یا بنویسید."
 EDIT_PROMPT = "✏️ چه تغییری بدهم؟ با پیام صوتی یا متنی بگویید."
 CANCELLED_TEXT = "❌ لغو شد. کاری انجام نشد."
+TOO_LONG_TEXT = "پیام صوتی حداکثر {} ثانیه می‌تواند باشد. لطفاً کوتاه‌تر بفرستید."
+RATE_LIMITED_TEXT = "پیام‌های شما زیاد است. لطفاً {} ثانیه دیگر دوباره بفرستید."
+DOWNLOAD_FAILED_TEXT = "متأسفم، دریافت پیام صوتی از تلگرام ناموفق بود. لطفاً دوباره بفرستید."
+
+DOWNLOAD_ATTEMPTS = 3
 
 CALLBACK = re.compile(r"^run:(\d+):(confirm|edit|cancel)$")
 
@@ -75,6 +84,11 @@ CALLBACK = re.compile(r"^run:(\d+):(confirm|edit|cancel)$")
 @lru_cache
 def _provider() -> DeepSeekProvider:
     return DeepSeekProvider()
+
+
+@lru_cache
+def _limiter() -> RateLimiter:
+    return RateLimiter(get_settings().rate_limit_per_minute, window_s=60)
 
 
 def _keyboard(run_id: int, editable: bool = True) -> InlineKeyboardMarkup:
@@ -89,6 +103,13 @@ async def guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Runs before every handler; stops updates from users not on the allowlist."""
     user = update.effective_user
     if user is not None and user.id in get_settings().allowed_ids:
+        # Button taps are not counted: they only act on proposals the user already has.
+        if update.callback_query is None and update.effective_message is not None:
+            wait_s = _limiter().hit(user.id)
+            if wait_s is not None:
+                logger.warning("Rate limited user %s for %.0f s", user.id, wait_s)
+                await update.effective_message.reply_text(RATE_LIMITED_TEXT.format(fa.to_fa_digits(ceil(wait_s))))
+                raise ApplicationHandlerStop
         return
     logger.warning("Refused update from user %s", user.id if user else None)
     if update.callback_query is not None:
@@ -212,6 +233,7 @@ async def _handle_request(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     edit_run_id = context.user_data.pop("edit_run_id", None)
     try:
         run_id, reply, is_action = await asyncio.to_thread(_run_agent, user_id, text, voice_id, edit_run_id)
+        set_run_id(run_id)
     except LLMError:
         await message.reply_text(LLM_DOWN_TEXT)
         return
@@ -227,17 +249,39 @@ async def text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await _handle_request(update, context, user_id, update.effective_message.text, None)
 
 
+async def _download_voice(tg_voice, target: Path, sleep=asyncio.sleep) -> bool:
+    """Download with 3 attempts and exponential backoff (1 s, 2 s). False if every attempt failed."""
+    async def attempt() -> None:
+        tg_file = await tg_voice.get_file()
+        await tg_file.download_to_drive(custom_path=target)
+
+    try:
+        # NetworkError covers TimedOut; BadRequest (also a NetworkError) will not improve on retry.
+        await retry_async(attempt, retry_on=(NetworkError,), give_up_on=(BadRequest,),
+                          attempts=DOWNLOAD_ATTEMPTS, sleep=sleep, what="Voice download")
+    except NetworkError:
+        target.unlink(missing_ok=True)
+        return False
+    return True
+
+
 async def voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     tg_user = update.effective_user
     tg_voice = message.voice
+    max_s = get_settings().max_voice_seconds
+    if (tg_voice.duration or 0) > max_s:
+        logger.info("Refused a %ss voice message (limit %ss)", tg_voice.duration, max_s)
+        await message.reply_text(TOO_LONG_TEXT.format(fa.to_fa_digits(max_s)))
+        return
     user_id = await asyncio.to_thread(_ensure_user, tg_user.id, tg_user.full_name)
 
     target_dir = Path(get_settings().voice_dir) / str(tg_user.id)
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / f"{message.message_id}_{tg_voice.file_unique_id}.ogg"
-    tg_file = await tg_voice.get_file()
-    await tg_file.download_to_drive(custom_path=target)
+    if not await _download_voice(tg_voice, target):
+        await message.reply_text(DOWNLOAD_FAILED_TEXT)
+        return
 
     voice_id = await asyncio.to_thread(
         _store_voice, user_id, tg_user.id, tg_voice.file_id, str(target), tg_voice.duration
@@ -306,6 +350,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await query.answer()
         return
     run_id, choice = int(match.group(1)), match.group(2)
+    set_run_id(run_id)  # copied into the worker threads below
+    logger.info("Button %s pressed", choice)
     tg_user = update.effective_user
     user_id = await asyncio.to_thread(_ensure_user, tg_user.id, tg_user.full_name)
     original = query.message.text if query.message else ""
@@ -340,6 +386,29 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.effective_message.reply_text(ERROR_TEXT)
 
 
+async def _cleanup_loop() -> None:
+    """Every few minutes, delete audio left behind (e.g. by a crash) for longer than an hour."""
+    s = get_settings()
+    while True:
+        try:
+            deleted = await asyncio.to_thread(delete_old_audio, s.voice_dir, s.audio_max_age_s)
+            if deleted:
+                logger.info("Deleted %d leftover audio file(s)", deleted)
+        except Exception:
+            logger.exception("Audio cleanup failed")
+        await asyncio.sleep(s.audio_cleanup_interval_s)
+
+
+async def _start_cleanup(app: Application) -> None:
+    app.bot_data["cleanup_task"] = asyncio.create_task(_cleanup_loop())
+
+
+async def _stop_cleanup(app: Application) -> None:
+    task = app.bot_data.pop("cleanup_task", None)
+    if task is not None:
+        task.cancel()
+
+
 def build_application() -> Application:
     settings = get_settings()
     if not settings.telegram_bot_token:
@@ -347,7 +416,14 @@ def build_application() -> Application:
     if not settings.allowed_ids:
         logger.warning("ALLOWED_USER_IDS is empty; every user will be refused")
 
-    app = Application.builder().token(settings.telegram_bot_token).concurrent_updates(True).build()
+    app = (
+        Application.builder()
+        .token(settings.telegram_bot_token)
+        .concurrent_updates(True)
+        .post_init(_start_cleanup)
+        .post_shutdown(_stop_cleanup)
+        .build()
+    )
     app.add_handler(TypeHandler(Update, guard), group=-1)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
@@ -362,10 +438,6 @@ def build_application() -> Application:
 
 
 def main() -> None:
-    logging.basicConfig(
-        level=logging.DEBUG if get_settings().debug else logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
-    # httpx logs every request URL, which contains the bot token.
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+    # JSON lines; httpx stays at WARNING because its request URLs contain the bot token.
+    configure_logging(logging.DEBUG if get_settings().debug else logging.INFO)
     build_application().run_polling(allowed_updates=Update.ALL_TYPES)

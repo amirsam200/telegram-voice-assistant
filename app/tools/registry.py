@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.agent import fa
 from app.db.models import Contact, MemoryFact, ToolCall
+from app.logging_setup import run_id_var, set_run_id
 from app.tools.google_calendar import CalendarClient, CalendarError, event_id_for
 from app.tools.mailer import EmailError, get_sender
 
@@ -326,6 +327,8 @@ def execute(
             raise ToolError(f"arguments are not valid JSON: {exc}") from exc
     if tool.side_effect and not idempotency_key:
         raise ToolError(f"{name} needs an idempotency key")
+    if ctx.run_id is not None and run_id_var.get() is None:
+        set_run_id(ctx.run_id)
 
     record: ToolCall | None = None
     if idempotency_key:
@@ -359,6 +362,7 @@ def execute(
         record.status = "success"
         record.latency_ms = int((time.monotonic() - started) * 1000)
         ctx.session.commit()
+        logger.info("Tool %s succeeded in %d ms", name, record.latency_ms)
         return result
 
     ctx.session.rollback()
@@ -367,5 +371,5 @@ def execute(
     record.status = "error"
     record.latency_ms = int((time.monotonic() - started) * 1000)
     ctx.session.commit()
-    logger.warning("Tool %s failed: %s", name, error)
+    logger.warning("Tool %s failed after %d ms: %s", name, record.latency_ms, error)
     raise ToolError(error)

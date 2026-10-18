@@ -11,6 +11,7 @@ from app.agent import fa
 from app.agent.actions import Action, AddContactAction, DeleteContactAction, EmailAction, ScheduleAction
 from app.agent.memory import learn_from_executed
 from app.db.models import AgentRun, AuditEvent, CalendarEvent, Email, RunStatus
+from app.logging_setup import set_run_id
 from app.tools.registry import ToolContext, ToolError, ToolInProgress, execute
 
 logger = logging.getLogger(__name__)
@@ -81,6 +82,8 @@ def _execute(session: Session, run_id: int, ctx: ToolContext, actor: str, event:
     session.refresh(run)
     action = load_action(run)
     ctx.run_id = run.id
+    set_run_id(run.id)
+    logger.info("Executing %s action (%s)", action.type, event)
     session.add(AuditEvent(event_type=event, actor=actor, payload_json={"run_id": run.id}))
     session.commit()
 
