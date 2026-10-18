@@ -42,6 +42,15 @@ class Settings(BaseSettings):
     timezone: str = "Asia/Tehran"
     debug: bool = False
 
+    # Admin API: every endpoint except /health needs this key in the X-API-Key header.
+    admin_api_key: str = ""
+
+    # Bot limits and housekeeping
+    rate_limit_per_minute: int = 10  # messages per Telegram user per minute
+    max_voice_seconds: int = 60
+    audio_max_age_s: int = 3600  # leftover audio older than this is deleted
+    audio_cleanup_interval_s: int = 600
+
     @property
     def allowed_ids(self) -> set[int]:
         return {int(x) for x in self.allowed_user_ids.replace(" ", "").split(",") if x}

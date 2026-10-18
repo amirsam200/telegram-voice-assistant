@@ -98,6 +98,28 @@ This starts `db` (PostgreSQL 16), runs `migrate` once (`alembic upgrade head` pl
 script), then starts `bot` (Telegram long polling) and `api` (FastAPI on
 http://127.0.0.1:8000, health check at `/health`).
 
+## Admin API
+
+Served on http://127.0.0.1:8000 (localhost only). `GET /health` is public and checks the database,
+Telegram and the LLM provider (200 when all are reachable, 503 otherwise; cached for 30 s). Every
+other endpoint needs `X-API-Key: <ADMIN_API_KEY>`; with no key set they all answer 401.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /runs` | Agent runs, newest first. Filters: `status`, `intent`, `user_id`, `since`, `until` |
+| `GET /runs/{id}` | One run: transcript, action JSON, tool calls, voice metadata (never audio) |
+| `POST /runs/{id}/retry` | Run a failed, already confirmed action again |
+| `GET /events` | Created calendar events. Filters: `from`, `to` (dates) |
+| `GET /emails` | Sent and failed emails. Filters: `status`, `to` |
+| `GET /contacts`, `POST /contacts` | List (`q` searches name/email) and create contacts |
+
+Lists take `limit` (1-100) and `offset` and return `{items, total, limit, offset}`. Interactive
+docs at `/docs` only when `DEBUG=true`.
+
+```bash
+curl -H "X-API-Key: $ADMIN_API_KEY" "http://127.0.0.1:8000/runs?status=failed&limit=5"
+```
+
 ## Tests
 
 Tests run in the container against a separate `<db>_test` database. Offline tests use a scripted

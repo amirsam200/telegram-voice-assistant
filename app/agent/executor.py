@@ -55,13 +55,33 @@ def confirm_and_execute(session: Session, run_id: int, user_id: int, ctx: ToolCo
         if run is None or run.user_id != user_id:
             return ExecutionResult(False, "این درخواست پیدا نشد.")
         return ExecutionResult(False, ALREADY.get(run.status, "این درخواست قابل انجام نیست."))
+    return _execute(session, run_id, ctx, actor=f"user:{user_id}", event="action_confirmed")
 
+
+def retry_failed(session: Session, run_id: int, ctx: ToolContext, actor: str) -> ExecutionResult | None:
+    """Run a confirmed action again after it failed. None when the run is not a failed action.
+
+    Side-effecting tools are keyed by run, so a step that already succeeded is not repeated.
+    """
+    claimed = session.execute(
+        update(AgentRun)
+        .where(AgentRun.id == run_id, AgentRun.status == RunStatus.failed, AgentRun.action_json.is_not(None))
+        .values(status=RunStatus.confirmed, error=None)
+        .returning(AgentRun.user_id)
+    ).scalar_one_or_none()
+    session.commit()
+    if claimed is None:
+        return None
+    ctx.user_id = claimed
+    return _execute(session, run_id, ctx, actor=actor, event="action_retried")
+
+
+def _execute(session: Session, run_id: int, ctx: ToolContext, actor: str, event: str) -> ExecutionResult:
     run = session.get(AgentRun, run_id)
     session.refresh(run)
     action = load_action(run)
     ctx.run_id = run.id
-    actor = f"user:{user_id}"
-    session.add(AuditEvent(event_type="action_confirmed", actor=actor, payload_json={"run_id": run.id}))
+    session.add(AuditEvent(event_type=event, actor=actor, payload_json={"run_id": run.id}))
     session.commit()
 
     try:
