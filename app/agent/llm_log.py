@@ -124,7 +124,10 @@ _recorder: Recorder | None = None
 def get_recorder() -> Recorder:
     global _recorder
     if _recorder is None:
-        _recorder = DbRecorder()
+        from app.budget import after_llm_call
+
+        # After each call, check the token budgets (alerts at 80 and 100 percent).
+        _recorder = DbRecorder(after=[after_llm_call])
     return _recorder
 
 

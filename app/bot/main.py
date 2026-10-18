@@ -26,6 +26,7 @@ from telegram.ext import (
     filters,
 )
 
+from app import budget
 from app.agent import contacts, fa
 from app.agent.actions import AddContactAction
 from app.agent.agent import run_agent
@@ -69,6 +70,7 @@ OWNER_ONLY_TEXT = "مدیریت مخاطبان فقط برای مالک ربات
 ERROR_TEXT = "متأسفم، خطایی رخ داد. لطفاً دوباره تلاش کنید."
 REPEAT_TEXT = "متأسفم، صدایتان را واضح متوجه نشدم. لطفاً آرام‌تر و شمرده‌تر دوباره بگویید."
 LLM_DOWN_TEXT = "سرویس هوش مصنوعی فعلاً در دسترس نیست. لطفاً چند دقیقه بعد دوباره تلاش کنید."
+BUDGET_STOP_TEXT = "بودجهٔ توکن تمام شده است و ربات فعلاً درخواست تازه نمی‌پذیرد. لطفاً بعداً دوباره تلاش کنید."
 STT_FAILED_TEXT = "متأسفم، تبدیل صدا به متن ناموفق بود. لطفاً دوباره بفرستید یا بنویسید."
 EDIT_PROMPT = "✏️ چه تغییری بدهم؟ با پیام صوتی یا متنی بگویید."
 CANCELLED_TEXT = "❌ لغو شد. کاری انجام نشد."
@@ -254,10 +256,26 @@ def _run_status(run_id: int, user_id: int):
 # --- handlers --------------------------------------------------------------------------------
 
 
+def _budget_blocked() -> bool:
+    with session_scope() as session:
+        return budget.is_blocked(session)
+
+
+async def _refuse_if_over_budget(message) -> bool:
+    """With BUDGET_HARD_STOP on, refuse new requests once a token budget is used up."""
+    if not get_settings().budget_hard_stop or not await asyncio.to_thread(_budget_blocked):
+        return False
+    logger.warning("Refused a request: token budget used up (hard stop)")
+    await message.reply_text(BUDGET_STOP_TEXT)
+    return True
+
+
 async def _handle_request(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str,
                           voice_id: int | None) -> None:
     message = update.effective_message
     await context.bot.send_chat_action(message.chat_id, ChatAction.TYPING)
+    if await _refuse_if_over_budget(message):
+        return
     edit_run_id = context.user_data.pop("edit_run_id", None)
     try:
         run_id, reply, is_action = await asyncio.to_thread(_run_agent, user_id, text, voice_id, edit_run_id)
@@ -297,6 +315,8 @@ async def voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     tg_user = update.effective_user
     tg_voice = message.voice
+    if await _refuse_if_over_budget(message):
+        return
     max_s = get_settings().max_voice_seconds
     if (tg_voice.duration or 0) > max_s:
         logger.info("Refused a %ss voice message (limit %ss)", tg_voice.duration, max_s)

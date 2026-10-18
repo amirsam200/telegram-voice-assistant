@@ -48,6 +48,13 @@ class Settings(BaseSettings):
     timezone: str = "Asia/Tehran"
     debug: bool = False
 
+    # Token budgets (prompt + completion tokens, Asia/Tehran days and months; 0 turns one off).
+    # The owner gets a Telegram alert at 80 and 100 percent; with the hard stop on, the bot
+    # refuses new requests once a budget is used up.
+    daily_token_budget: int = 300_000
+    monthly_token_budget: int = 6_000_000
+    budget_hard_stop: bool = False
+
     # Admin API: every endpoint except /health needs this key in the X-API-Key header.
     admin_api_key: str = ""
 
