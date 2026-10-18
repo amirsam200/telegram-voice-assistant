@@ -138,7 +138,7 @@ class DeepSeekProvider:
             model=completion.model or self.model,
         )
         record(llm_log.LlmCallRecord(
-            model=response.model, purpose=purpose, status="ok", run_id=run_id,
+            model=response.model, requested_model=self.model, purpose=purpose, status="ok", run_id=run_id,
             prompt_tokens=response.prompt_tokens, completion_tokens=response.completion_tokens,
             cached_tokens=llm_log.cached_tokens_of(usage), latency_ms=latency_ms,
         ))

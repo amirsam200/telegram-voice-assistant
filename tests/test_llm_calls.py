@@ -187,3 +187,13 @@ def test_a_missing_run_does_not_lose_the_row(session, llm_recorder) -> None:
                                        prompt_tokens=7, run_id=99999))
     [call] = _calls(session)
     assert (call.run_id, call.prompt_tokens) == (None, 7)
+
+
+def test_cost_falls_back_to_the_requested_model(session, llm_recorder) -> None:
+    llm_recorder(llm_log.LlmCallRecord(model="deepseek-v4.1-flash", requested_model="deepseek-chat",
+                                       purpose="intent", status="ok", prompt_tokens=1000, completion_tokens=100))
+    llm_recorder(llm_log.LlmCallRecord(model="mystery-model", purpose="intent", status="ok", prompt_tokens=10))
+    priced, unknown = _calls(session)
+    assert priced.model == "deepseek-v4.1-flash"
+    assert float(priced.cost_usd) == pytest.approx(cost_usd("deepseek-chat", 1000, 100))
+    assert unknown.cost_usd is None

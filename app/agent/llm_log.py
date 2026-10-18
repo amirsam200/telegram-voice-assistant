@@ -31,6 +31,8 @@ class LlmCallRecord:
     error: str | None = None
     run_id: int | None = None
     cost_usd: float | None = None
+    # The model name we asked for; the API may report a more specific one in `model`.
+    requested_model: str | None = None
 
 
 def infer_purpose(messages: list[dict[str, Any]]) -> str:
@@ -91,8 +93,13 @@ class DbRecorder:
 
                 self._session_factory = SessionLocal
             if record.cost_usd is None and record.status == "ok":
-                record.cost_usd = cost_usd(record.model, record.prompt_tokens, record.completion_tokens,
-                                           record.cached_tokens)
+                # Price by the reported model, else by the configured one (e.g. the API reports
+                # "deepseek-v4.1-flash" for a request to "deepseek-chat").
+                for name in dict.fromkeys([record.model, record.requested_model]):
+                    if name and (price := cost_usd(name, record.prompt_tokens, record.completion_tokens,
+                                                   record.cached_tokens)) is not None:
+                        record.cost_usd = price
+                        break
             for run_id in dict.fromkeys([record.run_id, None]):  # without the run if it no longer exists
                 try:
                     with self._session_factory() as session:
