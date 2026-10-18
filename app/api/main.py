@@ -21,6 +21,7 @@ from app.agent.executor import retry_failed
 from app.api import schemas
 from app.api.health import DEFAULT_CHECKS, HealthChecker
 from app.config import get_settings
+from app.db.demo import DEMO_TELEGRAM_ID
 from app.logging_setup import configure_logging, log_run
 from app.db.models import (
     AgentRun,
@@ -162,6 +163,9 @@ def create_app() -> FastAPI:
         run = session.get(AgentRun, run_id)
         if run is None:
             raise HTTPException(status_code=404, detail="run not found")
+        owner = session.get(User, run.user_id) if run.user_id is not None else None
+        if owner is not None and owner.telegram_user_id == DEMO_TELEGRAM_ID:
+            raise HTTPException(status_code=409, detail="demo runs cannot be retried")
         if run.status != RunStatus.failed or run.action_json is None:
             raise HTTPException(status_code=409, detail=f"only failed actions can be retried (status: {run.status.value})")
         with log_run(run_id):

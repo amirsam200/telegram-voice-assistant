@@ -131,6 +131,7 @@ def run_agent(
     result = AgentResult(run_id=run.id)
     error: str | None = None
     steps = 0
+    validation_errors = 0  # final answers rejected by validation
 
     try:
         while steps < MAX_STEPS and result.action is None and result.question is None:
@@ -156,6 +157,8 @@ def run_agent(
                     content = {"error": "ignored: a final answer was already given"}
                 elif call.name in FINAL_TOOLS:
                     content = _finish(call.name, call.arguments, ctx, context.trusted_emails, text, result)
+                    if "error" in content:
+                        validation_errors += 1
                 elif call.name in PLANNING_TOOLS:
                     try:
                         content = execute(ctx, call.name, call.arguments)
@@ -171,6 +174,7 @@ def run_agent(
         logger.error("Agent run %s failed: %s", run.id, exc)
 
     run.steps = steps
+    run.validation_errors = validation_errors
     run.prompt_tokens = prompt_tokens
     run.completion_tokens = completion_tokens
     run.tokens = prompt_tokens + completion_tokens

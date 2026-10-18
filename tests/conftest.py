@@ -35,6 +35,21 @@ def engine():
     engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def llm_recorder(engine):
+    """LLM calls made in tests are recorded in the test database, never the real one."""
+    from app.agent import llm_log
+
+    from app.logging_setup import run_id_var
+
+    recorder = llm_log.DbRecorder(sessionmaker(bind=engine, expire_on_commit=False), after=[])
+    llm_log.set_recorder(recorder)
+    token = run_id_var.set(None)  # no run_id leaking from one test into the next
+    yield recorder
+    run_id_var.reset(token)
+    llm_log.set_recorder(None)
+
+
 @pytest.fixture
 def session(engine) -> Iterator[Session]:
     with engine.begin() as conn:

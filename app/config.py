@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     deepseek_model: str = "deepseek-chat"
     llm_timeout_s: float = 60.0
     llm_max_retries: int = 3
+    # USD per 1M tokens, per model: {"model": {"input": ..., "cached_input": ..., "output": ...}}.
+    # Set LLM_PRICES (JSON) to your provider's current prices; unknown models get no cost.
+    llm_prices: dict[str, dict[str, float]] = {
+        "deepseek-chat": {"input": 0.27, "cached_input": 0.07, "output": 1.10},
+        "deepseek-reasoner": {"input": 0.55, "cached_input": 0.14, "output": 2.19},
+    }
 
     # Google (Calendar, and Gmail when EMAIL_PROVIDER=gmail)
     google_client_id: str = ""

@@ -33,7 +33,7 @@ from app.agent.executor import cancel, confirm_and_execute, preview
 from app.agent.provider import DeepSeekProvider, LLMError
 from app.bot.limits import RateLimiter, delete_old_audio, retry_async
 from app.config import get_settings
-from app.db.models import AgentRun, AuditEvent, RunStatus, User, VoiceMessage
+from app.db.models import AgentRun, AuditEvent, RunFeedback, RunStatus, User, VoiceMessage
 from app.db.session import SessionLocal, session_scope
 from app.logging_setup import configure_logging, set_run_id
 from app.stt.vosk_stt import SttError, transcribe_file
@@ -79,6 +79,8 @@ DOWNLOAD_FAILED_TEXT = "متأسفم، دریافت پیام صوتی از تل�
 DOWNLOAD_ATTEMPTS = 3
 
 CALLBACK = re.compile(r"^run:(\d+):(confirm|edit|cancel)$")
+FEEDBACK = re.compile(r"^fb:(\d+):(up|down)$")
+FEEDBACK_THANKS = "ممنون از بازخورد شما 🙏"
 
 
 @lru_cache
@@ -89,6 +91,13 @@ def _provider() -> DeepSeekProvider:
 @lru_cache
 def _limiter() -> RateLimiter:
     return RateLimiter(get_settings().rate_limit_per_minute, window_s=60)
+
+
+def _feedback_keyboard(run_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("👍", callback_data=f"fb:{run_id}:up"),
+        InlineKeyboardButton("👎", callback_data=f"fb:{run_id}:down"),
+    ]])
 
 
 def _keyboard(run_id: int, editable: bool = True) -> InlineKeyboardMarkup:
@@ -217,6 +226,25 @@ def _contacts_text(user_id: int) -> str:
         return contacts.list_text(session, user_id)
 
 
+def _audit(event_type: str, actor: str, payload: dict) -> None:
+    with session_scope() as session:
+        session.add(AuditEvent(event_type=event_type, actor=actor, payload_json=payload))
+
+
+def _save_feedback(run_id: int, user_id: int, rating: int) -> bool:
+    """Store (or change) the thumbs up/down for one of the user's own runs."""
+    with session_scope() as session:
+        run = session.get(AgentRun, run_id)
+        if run is None or run.user_id != user_id:
+            return False
+        feedback = session.scalar(select(RunFeedback).where(RunFeedback.run_id == run_id))
+        if feedback is None:
+            session.add(RunFeedback(run_id=run_id, user_id=user_id, rating=rating))
+        else:
+            feedback.rating = rating
+        return True
+
+
 def _run_status(run_id: int, user_id: int):
     with session_scope() as session:
         run = session.get(AgentRun, run_id)
@@ -240,7 +268,7 @@ async def _handle_request(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     if is_action:
         await message.reply_text(reply, reply_markup=_keyboard(run_id))
     else:
-        await message.reply_text(reply)
+        await message.reply_text(reply, reply_markup=_feedback_keyboard(run_id))
 
 
 async def text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -361,7 +389,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # Remove the buttons first so the same message cannot be tapped again.
         await query.edit_message_reply_markup(reply_markup=None)
         outcome = await asyncio.to_thread(_confirm, run_id, user_id)
-        await query.edit_message_text(f"{original}\n\n{outcome.message}")
+        await query.edit_message_text(f"{original}\n\n{outcome.message}", reply_markup=_feedback_keyboard(run_id))
     elif choice == "cancel":
         cancelled = await asyncio.to_thread(_cancel, run_id, user_id)
         await query.answer()
@@ -376,8 +404,26 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await query.edit_message_reply_markup(reply_markup=None)
             return
         context.user_data["edit_run_id"] = run_id
+        await asyncio.to_thread(_audit, "action_edit_requested", f"user:{user_id}", {"run_id": run_id})
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(EDIT_PROMPT)
+
+
+async def feedback_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    match = FEEDBACK.match(query.data or "")
+    if match is None:
+        await query.answer()
+        return
+    run_id, rating = int(match.group(1)), 1 if match.group(2) == "up" else -1
+    set_run_id(run_id)
+    tg_user = update.effective_user
+    user_id = await asyncio.to_thread(_ensure_user, tg_user.id, tg_user.full_name)
+    saved = await asyncio.to_thread(_save_feedback, run_id, user_id, rating)
+    await query.answer(FEEDBACK_THANKS if saved else "")
+    if saved:
+        logger.info("Feedback %+d", rating)
+        await query.edit_message_reply_markup(reply_markup=None)
 
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -433,6 +479,7 @@ def build_application() -> Application:
     app.add_handler(MessageHandler(filters.VOICE, voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message))
     app.add_handler(CallbackQueryHandler(button, pattern=r"^run:"))
+    app.add_handler(CallbackQueryHandler(feedback_button, pattern=r"^fb:"))
     app.add_error_handler(on_error)
     return app
 

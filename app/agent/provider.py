@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from app.agent import llm_log
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,7 @@ class DeepSeekProvider:
         model: str | None = None,
         timeout_s: float | None = None,
         max_retries: int | None = None,
+        recorder: "llm_log.Recorder | None" = None,
     ) -> None:
         from openai import OpenAI
 
@@ -67,6 +69,8 @@ class DeepSeekProvider:
             raise LLMError("DEEPSEEK_API_KEY is not set")
         self.model = model or settings.deepseek_model
         self.max_retries = settings.llm_max_retries if max_retries is None else max_retries
+        # Every attempt is written to llm_calls; None means the default database recorder.
+        self._recorder = recorder
         # Retries are handled here, with backoff, so the SDK's own retries are off.
         self._client = OpenAI(
             api_key=api_key,
@@ -84,6 +88,17 @@ class DeepSeekProvider:
             openai.RateLimitError,
             openai.InternalServerError,
         )
+        purpose = llm_log.infer_purpose(messages)
+        run_id = llm_log.current_run_id()
+        record = self._recorder or llm_log.get_recorder()
+
+        def failed(status: str, exc: Exception, started: float) -> None:
+            record(llm_log.LlmCallRecord(
+                model=self.model, purpose=purpose, status=status, run_id=run_id,
+                latency_ms=int((time.monotonic() - started) * 1000),
+                error=f"{exc.__class__.__name__}: {exc}"[:500],
+            ))
+
         attempt = 0
         while True:
             started = time.monotonic()
@@ -98,17 +113,20 @@ class DeepSeekProvider:
             except retryable as exc:
                 attempt += 1
                 if attempt > self.max_retries:
+                    failed("error", exc, started)
                     raise LLMError(f"LLM unavailable after {attempt} attempts: {exc.__class__.__name__}") from exc
+                failed("retry", exc, started)
                 delay = min(2 ** attempt, 20) + random.uniform(0, 0.5)
                 logger.warning("LLM call failed (%s); retry %d in %.1fs", exc.__class__.__name__, attempt, delay)
                 time.sleep(delay)
             except openai.APIError as exc:
+                failed("error", exc, started)
                 raise LLMError(f"LLM request failed: {exc.__class__.__name__}: {exc}") from exc
 
         latency_ms = int((time.monotonic() - started) * 1000)
         choice = completion.choices[0].message
         usage = completion.usage
-        return LLMResponse(
+        response = LLMResponse(
             content=choice.content,
             tool_calls=[
                 ToolCallRequest(id=c.id, name=c.function.name, arguments=c.function.arguments or "{}")
@@ -119,3 +137,9 @@ class DeepSeekProvider:
             latency_ms=latency_ms,
             model=completion.model or self.model,
         )
+        record(llm_log.LlmCallRecord(
+            model=response.model, purpose=purpose, status="ok", run_id=run_id,
+            prompt_tokens=response.prompt_tokens, completion_tokens=response.completion_tokens,
+            cached_tokens=llm_log.cached_tokens_of(usage), latency_ms=latency_ms,
+        ))
+        return response

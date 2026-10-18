@@ -10,6 +10,9 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    Boolean,
+    Numeric,
+    SmallInteger,
     MetaData,
     String,
     Text,
@@ -134,6 +137,8 @@ class AgentRun(TimestampMixin, Base):
     steps: Mapped[int | None] = mapped_column(Integer)
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
+    # Final answers the model gave that failed validation (bad JSON, schema, invented email, past date).
+    validation_errors: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
 
 class ToolCall(TimestampMixin, Base):
@@ -201,3 +206,55 @@ class AuditEvent(TimestampMixin, Base):
     event_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     actor: Mapped[str | None] = mapped_column(String(200))
     payload_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+
+
+class LlmCall(Base):
+    """One request to the LLM provider (written by the provider, one row per attempt)."""
+
+    __tablename__ = "llm_calls"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int | None] = mapped_column(ForeignKey("agent_runs.id", ondelete="SET NULL"), index=True)
+    model: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    # stt_fix, intent (first call of a run), tool_step (later calls), review
+    purpose: Mapped[str] = mapped_column(String(32), nullable=False)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    cached_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    cost_usd: Mapped[float | None] = mapped_column(Numeric(12, 6))
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)  # ok, retry, error
+    error: Mapped[str | None] = mapped_column(Text)
+    # Rows from the demo seed script; shown on the dashboard but never counted against budgets.
+    demo: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+
+class RunFeedback(TimestampMixin, Base):
+    """Thumbs up (+1) or down (-1) the user gave under a bot reply; one per run."""
+
+    __tablename__ = "run_feedback"
+    __table_args__ = (UniqueConstraint("run_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    rating: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+
+
+class BudgetAlert(Base):
+    """A budget alert that was sent, so each threshold alerts once per day or month."""
+
+    __tablename__ = "budget_alerts"
+    __table_args__ = (UniqueConstraint("period", "threshold", name="uq_budget_alerts_period_threshold"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    period: Mapped[str] = mapped_column(String(32), nullable=False)  # "day:2026-10-18" or "month:2026-10"
+    threshold: Mapped[int] = mapped_column(Integer, nullable=False)  # percent: 80 or 100
+    used_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    budget_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
