@@ -55,6 +55,16 @@ class Settings(BaseSettings):
     monthly_token_budget: int = 6_000_000
     budget_hard_stop: bool = False
 
+    # Dashboard (owner only). Password hash from: python -m app.dashboard.auth
+    dashboard_password_hash: str = ""
+    dashboard_secret_key: str = ""  # signs the session cookie
+    dashboard_cookie_secure: bool = False  # true behind HTTPS (the reverse proxy)
+    # Read-only role for the dashboard, created by the migrate service when the password is set.
+    dashboard_db_user: str = "dashboard_ro"
+    dashboard_db_password: str = ""
+    dashboard_database_url: str = ""  # postgresql+psycopg://dashboard_ro:<password>@db:5432/<db>
+    dashboard_host: str = ""  # public subdomain for the reverse proxy, e.g. usage.example.com
+
     # Admin API: every endpoint except /health needs this key in the X-API-Key header.
     admin_api_key: str = ""
 

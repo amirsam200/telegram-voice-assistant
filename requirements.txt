@@ -19,3 +19,7 @@ mcp==1.9.4
 # mcp pulls in Starlette; keep the version FastAPI 0.115 supports
 starlette==0.46.2
 sse-starlette==3.0.3
+# dashboard: server-side templates, signed session cookie, login form
+jinja2==3.1.6
+itsdangerous==2.2.0
+python-multipart==0.0.32

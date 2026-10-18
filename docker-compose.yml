@@ -27,7 +27,8 @@ services:
   migrate:
     <<: *app
     restart: "no"
-    command: ["sh", "-c", "alembic upgrade head && python -m app.db.seed"]
+    # Also creates the dashboard's read-only role and seeds the demo data once (skipped when present).
+    command: ["sh", "-c", "alembic upgrade head && python -m app.db.seed && python -m app.db.readonly_role && python -m app.db.demo"]
     depends_on:
       db:
         condition: service_healthy
@@ -46,6 +47,18 @@ services:
     command: ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "127.0.0.1:8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # Token and quality dashboard (read-only DB role). Locally http://127.0.0.1:8080;
+  # in production the "proxy" service serves it on DASHBOARD_HOST with HTTPS.
+  dashboard:
+    <<: *app
+    command: ["uvicorn", "app.dashboard.main:app", "--host", "0.0.0.0", "--port", "8080",
+              "--proxy-headers", "--forwarded-allow-ips", "*"]
+    ports:
+      - "127.0.0.1:8080:8080"
     depends_on:
       migrate:
         condition: service_completed_successfully

@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 from collections import defaultdict, deque
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Hashable
 from pathlib import Path
 from typing import TypeVar
 
@@ -20,9 +20,9 @@ class RateLimiter:
         self.limit = limit
         self.window_s = window_s
         self._clock = clock
-        self._events: dict[int, deque[float]] = defaultdict(deque)
+        self._events: dict[Hashable, deque[float]] = defaultdict(deque)
 
-    def hit(self, key: int) -> float | None:
+    def hit(self, key: Hashable) -> float | None:
         """Record one event. Returns None if allowed, else the seconds to wait."""
         now = self._clock()
         events = self._events[key]

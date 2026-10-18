@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{% block title %}داشبورد مصرف و کیفیت{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700&display=swap">
+  <style>
+    :root {
+      --bg: #f6f7fb; --card: #ffffff; --text: #1d2333; --muted: #6b7286; --line: #e6e8f0;
+      --accent: #3a63f3; --ok: #1f9d6b; --warn: #d98a00; --bad: #d64545; --chip: #eef1fb;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text);
+           font: 15px/1.6 Vazirmatn, Tahoma, "Segoe UI", sans-serif; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    header { background: var(--card); border-bottom: 1px solid var(--line); }
+    .bar { max-width: 1240px; margin: 0 auto; padding: 12px 16px; display: flex; gap: 16px;
+           align-items: center; flex-wrap: wrap; }
+    .bar h1 { font-size: 17px; margin: 0; margin-inline-end: auto; }
+    .bar nav a { margin-inline-end: 14px; font-weight: 600; }
+    main { max-width: 1240px; margin: 0 auto; padding: 16px; }
+    .en { color: var(--muted); font-size: 12px; direction: ltr; unicode-bidi: isolate; }
+    .grid { display: grid; gap: 12px; }
+    .kpis { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+    .charts { grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); margin-top: 12px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+    .card h2 { font-size: 15px; margin: 0 0 10px; }
+    .kpi .label { font-size: 13px; color: var(--muted); }
+    .kpi .value { font-size: 22px; font-weight: 700; margin-top: 2px; }
+    .kpi .sub { font-size: 12px; color: var(--muted); }
+    .progress { height: 10px; background: var(--chip); border-radius: 6px; overflow: hidden; margin: 8px 0 4px; }
+    .progress > span { display: block; height: 100%; background: var(--ok); }
+    .progress.warn > span { background: var(--warn); } .progress.bad > span { background: var(--bad); }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 8px 6px; border-bottom: 1px solid var(--line); text-align: start; vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; font-size: 13px; white-space: nowrap; }
+    td.num, th.num { text-align: end; white-space: nowrap; }
+    .scroll { overflow-x: auto; }
+    .chip { display: inline-block; padding: 1px 8px; border-radius: 10px; background: var(--chip); font-size: 12px; }
+    .chip.ok { background: #e3f6ee; color: var(--ok); } .chip.bad { background: #fbe7e7; color: var(--bad); }
+    .chip.warn { background: #fdf1dc; color: var(--warn); }
+    form.filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; }
+    label { font-size: 13px; color: var(--muted); display: grid; gap: 2px; }
+    input, select, button { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px;
+                            background: #fff; color: var(--text); }
+    button, .button { background: var(--accent); color: #fff; border: 0; padding: 7px 14px; border-radius: 8px;
+                      cursor: pointer; display: inline-block; }
+    .button.light { background: var(--chip); color: var(--accent); }
+    pre { background: #f3f4f8; padding: 10px; border-radius: 8px; overflow-x: auto; direction: ltr;
+          text-align: left; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+    .muted { color: var(--muted); }
+    .notice { background: #fff8e6; border: 1px solid #f3dfa8; padding: 8px 12px; border-radius: 8px;
+              margin-bottom: 12px; font-size: 14px; }
+    canvas { max-height: 300px; }
+  </style>
+</head>
+<body>
+  {% block header %}
+  <header>
+    <div class="bar">
+      <h1>📊 داشبورد مصرف و کیفیت <span class="en">Usage &amp; quality</span></h1>
+      <nav><a href="/">نمای کلی</a><a href="/logs">گزارش اجراها</a></nav>
+      <form method="post" action="/logout"><button class="button light" type="submit">خروج</button></form>
+    </div>
+  </header>
+  {% endblock %}
+  <main>{% block content %}{% endblock %}</main>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

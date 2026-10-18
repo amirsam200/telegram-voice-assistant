@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}ورود به داشبورد{% endblock %}
+{% block header %}{% endblock %}
+{% block content %}
+<div class="card" style="max-width: 380px; margin: 12vh auto 0;">
+  <h2>🔒 ورود به داشبورد <span class="en">Sign in</span></h2>
+  <p class="muted">فقط مالک ربات به این داشبورد دسترسی دارد.</p>
+  {% if error %}<div class="notice">{{ error }}</div>{% endif %}
+  <form method="post" action="/login" style="display: grid; gap: 10px;">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>رمز عبور <span class="en">Password</span>
+      <input type="password" name="password" autocomplete="current-password" required autofocus>
+    </label>
+    <button type="submit">ورود</button>
+  </form>
+</div>
+{% endblock %}

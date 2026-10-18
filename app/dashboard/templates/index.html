@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:12px;">
+  <span class="muted">به‌روزرسانی: {{ now | fa_datetime }} · ۳۰ روز اخیر</span>
+  <span style="margin-inline-start:auto">
+    {% if demo %}<a class="button light" href="/?demo=0">نمایش بدون دادهٔ نمایشی</a>
+    {% else %}<a class="button light" href="/">نمایش با دادهٔ نمایشی</a>{% endif %}
+  </span>
+</div>
+
+<section class="grid kpis">
+  <div class="card kpi"><div class="label">توکن امروز <span class="en">Tokens today</span></div>
+    <div class="value">{{ kpi.tokens_today | fa_compact }}</div></div>
+  <div class="card kpi"><div class="label">توکن ۷ روز <span class="en">Tokens 7d</span></div>
+    <div class="value">{{ kpi.tokens_7d | fa_compact }}</div></div>
+  <div class="card kpi"><div class="label">توکن ۳۰ روز <span class="en">Tokens 30d</span></div>
+    <div class="value">{{ kpi.tokens_30d | fa_compact }}</div>
+    <div class="sub">{{ kpi.llm_calls_30d | fa_number }} فراخوانی</div></div>
+  <div class="card kpi"><div class="label">هزینه <span class="en">Cost (30d / today)</span></div>
+    <div class="value">{{ kpi.cost_30d | fa_usd }}</div>
+    <div class="sub">امروز {{ kpi.cost_today | fa_usd }}</div></div>
+  <div class="card kpi"><div class="label">تأخیر <span class="en">Latency P50 / P95</span></div>
+    <div class="value">{{ kpi.latency_p50 | fa_ms }}</div>
+    <div class="sub">P95: {{ kpi.latency_p95 | fa_ms }}</div></div>
+  <div class="card kpi"><div class="label">نرخ موفقیت <span class="en">Success rate</span></div>
+    <div class="value">{{ kpi.success_rate | fa_percent }}</div>
+    <div class="sub">{{ kpi.runs_30d | fa_number }} اجرا</div></div>
+  <div class="card kpi"><div class="label">نرخ تأیید <span class="en">Confirmation rate</span></div>
+    <div class="value">{{ kpi.confirmation_rate | fa_percent }}</div>
+    <div class="sub">ویرایش <span class="en">Edit</span> {{ kpi.edit_rate | fa_percent }}</div></div>
+</section>
+
+<section class="grid charts">
+  <div class="card">
+    <h2>بودجهٔ توکن <span class="en">Token budget</span>
+      {% if hard_stop %}<span class="chip warn">توقف خودکار روشن</span>{% else %}<span class="chip">توقف خودکار خاموش</span>{% endif %}</h2>
+    {% for b in budgets %}
+      {% set pct = b.percent %}
+      <div style="margin-bottom:10px;">
+        <div>{{ "روزانه" if b.period == "day" else "ماهانه" }} <span class="en">{{ "Daily" if b.period == "day" else "Monthly" }}</span>:
+          {{ b.used | fa_number }} از {{ b.budget | fa_number }} توکن ({{ (pct / 100) | fa_percent }})</div>
+        <div class="progress {{ 'bad' if pct >= 100 else ('warn' if pct >= 80 else '') }}">
+          <span style="width: {{ [pct, 100] | min }}%"></span></div>
+      </div>
+    {% else %}
+      <p class="muted">بودجه‌ای تنظیم نشده است (DAILY_TOKEN_BUDGET, MONTHLY_TOKEN_BUDGET).</p>
+    {% endfor %}
+    <p class="muted" style="font-size:13px; margin:0;">هشدار تلگرامی در ۸۰٪ و ۱۰۰٪؛ دادهٔ نمایشی در بودجه شمرده نمی‌شود.</p>
+  </div>
+  <div class="card"><h2>توکن روزانه به تفکیک مدل <span class="en">Tokens per day by model</span></h2>
+    <canvas id="tokensModel"></canvas></div>
+  <div class="card"><h2>هزینهٔ روزانه به تفکیک مدل <span class="en">Cost per day by model (USD)</span></h2>
+    <canvas id="costModel"></canvas></div>
+  <div class="card"><h2>توکن روزانه به تفکیک کاربرد <span class="en">Tokens per day by purpose</span></h2>
+    <canvas id="tokensPurpose"></canvas></div>
+  <div class="card"><h2>تأخیر <span class="en">Latency P50 / P95</span></h2>
+    <canvas id="latency"></canvas></div>
+  <div class="card"><h2>نرخ موفقیت و ویرایش <span class="en">Success &amp; edit rate</span></h2>
+    <canvas id="rates"></canvas></div>
+</section>
+
+<section class="card" style="margin-top:12px;">
+  <h2>کیفیت به تفکیک مدل <span class="en">Quality per model (30d)</span></h2>
+  <div class="scroll"><table>
+    <thead><tr>
+      <th>مدل <span class="en">Model</span></th><th class="num">اجرا <span class="en">Runs</span></th>
+      <th class="num">موفقیت <span class="en">Success</span></th><th class="num">JSON معتبر <span class="en">JSON-valid</span></th>
+      <th class="num">ویرایش <span class="en">Edit</span></th><th class="num">میانگین گام <span class="en">Avg steps</span></th>
+      <th class="num">هزینهٔ هر اجرا <span class="en">Avg cost/run</span></th><th class="num">👍 <span class="en">Thumbs up</span></th>
+    </tr></thead>
+    <tbody>
+    {% for q in quality %}
+      <tr><td class="en" style="font-size:14px;color:inherit">{{ q.model }}</td><td class="num">{{ q.runs | fa_number }}</td>
+        <td class="num">{{ q.success_rate | fa_percent }}</td><td class="num">{{ q.json_valid_rate | fa_percent }}</td>
+        <td class="num">{{ q.edit_rate | fa_percent }}</td><td class="num">{{ q.avg_steps | fa_number(2) }}</td>
+        <td class="num">{{ q.avg_cost | fa_usd }}</td>
+        <td class="num">{{ q.thumbs_up_share | fa_percent(0) }} <span class="muted">({{ q.feedback | fa_number }})</span></td></tr>
+    {% else %}<tr><td colspan="8" class="muted">هنوز اجرایی ثبت نشده است.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+
+<section class="card" style="margin-top:12px;">
+  <h2>پرهزینه‌ترین اجراها <span class="en">Most expensive runs (30d)</span></h2>
+  <div class="scroll"><table>
+    <thead><tr><th>#</th><th>زمان</th><th>مدل</th><th>نوع</th><th>متن</th>
+      <th class="num">توکن</th><th class="num">هزینه</th></tr></thead>
+    <tbody>
+    {% for r in expensive %}
+      <tr><td><a href="/runs/{{ r.id }}">{{ r.id | fa_digits }}</a></td><td>{{ r.created_at | fa_datetime }}</td>
+        <td class="en">{{ r.model }}</td><td>{{ INTENT_FA.get(r.intent, r.intent) }}</td>
+        <td>{{ r.excerpt or "" }}</td><td class="num">{{ r.tokens | fa_number }}</td><td class="num">{{ r.cost | fa_usd }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+  const byModel = {{ by_model | tojson }}, byPurpose = {{ by_purpose | tojson }};
+  const latency = {{ latency | tojson }}, rates = {{ rates | tojson }};
+  const purposeFa = {{ PURPOSE_FA | tojson }};
+  const fa = new Intl.NumberFormat("fa-IR");
+  const faDate = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { month: "short", day: "numeric" });
+  const label = (iso) => faDate.format(new Date(iso + "T12:00:00"));
+  const palette = ["#3a63f3", "#f08a24", "#1f9d6b", "#a24bd6", "#d64545", "#00a3b4"];
+  Chart.defaults.font.family = "Vazirmatn, Tahoma, sans-serif";
+  Chart.defaults.locale = "fa-IR";
+  const common = (unit) => ({
+    responsive: true, maintainAspectRatio: true, interaction: { mode: "index", intersect: false },
+    plugins: { legend: { position: "bottom", rtl: true },
+               tooltip: { rtl: true, callbacks: { label: (c) => `${c.dataset.label}: ${c.raw == null ? "—" : unit(c.raw)}` } } },
+    scales: { y: { beginAtZero: true, ticks: { callback: (v) => unit(v) } } },
+  });
+  const stacked = (id, data, field, unit, names = (k) => k) => new Chart(document.getElementById(id), {
+    type: "bar",
+    data: { labels: data.days.map(label),
+            datasets: Object.entries(data.series).map(([k, s], i) => ({ label: names(k), data: s[field],
+                       backgroundColor: palette[i % palette.length], stack: "s" })) },
+    options: (() => { const o = common(unit); o.scales.x = { stacked: true }; o.scales.y.stacked = true; return o; })(),
+  });
+  const tokens = (v) => fa.format(v), usd = (v) => "$" + fa.format(Number(v).toFixed(4));
+  stacked("tokensModel", byModel, "tokens", tokens);
+  stacked("costModel", byModel, "cost", usd);
+  stacked("tokensPurpose", byPurpose, "tokens", tokens, (k) => `${purposeFa[k] || k} (${k})`);
+  new Chart(document.getElementById("latency"), {
+    type: "line",
+    data: { labels: latency.days.map(label), datasets: [
+      { label: "P50", data: latency.p50, borderColor: palette[0], tension: .3, spanGaps: true },
+      { label: "P95", data: latency.p95, borderColor: palette[1], tension: .3, spanGaps: true }] },
+    options: common((v) => fa.format((v / 1000).toFixed(2)) + " ث"),
+  });
+  const pct = (v) => fa.format(Math.round(v * 100)) + "٪";
+  const r = common(pct); r.scales.y.max = 1;
+  new Chart(document.getElementById("rates"), {
+    type: "line",
+    data: { labels: rates.days.map(label), datasets: [
+      { label: "موفقیت (success)", data: rates.success, borderColor: palette[2], tension: .3, spanGaps: true },
+      { label: "ویرایش (edit)", data: rates.edit, borderColor: palette[4], tension: .3, spanGaps: true }] },
+    options: r,
+  });
+</script>
+{% endblock %}

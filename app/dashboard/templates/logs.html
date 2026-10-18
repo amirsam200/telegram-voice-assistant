@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}گزارش اجراها{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>گزارش اجراها <span class="en">Run logs</span> · {{ total | fa_number }} مورد</h2>
+  <form class="filters" method="get" action="/logs">
+    <label>از تاریخ <span class="en">From</span><input type="date" name="from" value="{{ filters.date_from or '' }}"></label>
+    <label>تا تاریخ <span class="en">To</span><input type="date" name="to" value="{{ filters.date_to or '' }}"></label>
+    <label>مدل <span class="en">Model</span><select name="model"><option value="">همه</option>
+      {% for m in options.models %}<option value="{{ m }}" {{ 'selected' if filters.model == m }}>{{ m }}</option>{% endfor %}</select></label>
+    <label>وضعیت <span class="en">Status</span><select name="status"><option value="">همه</option>
+      {% for s in options.statuses %}<option value="{{ s }}" {{ 'selected' if filters.status == s }}>{{ STATUS_FA[s] }} ({{ s }})</option>{% endfor %}</select></label>
+    <label>نوع <span class="en">Intent</span><select name="intent"><option value="">همه</option>
+      {% for i in options.intents %}<option value="{{ i }}" {{ 'selected' if filters.intent == i }}>{{ INTENT_FA[i] }} ({{ i }})</option>{% endfor %}</select></label>
+    <label>دادهٔ نمایشی <span class="en">Demo</span><select name="demo">
+      <option value="1" {{ 'selected' if demo }}>با آن</option><option value="0" {{ 'selected' if not demo }}>بدون آن</option></select></label>
+    <button type="submit">اعمال فیلتر</button>
+    <a class="button light" href="{{ csv_url }}">خروجی CSV</a>
+  </form>
+</div>
+
+<div class="card scroll" style="margin-top:12px;">
+  <table>
+    <thead><tr><th>#</th><th>زمان <span class="en">Time</span></th><th>مدل</th><th>نوع</th><th>وضعیت</th><th>تصمیم <span class="en">Decision</span></th>
+      <th>متن <span class="en">Transcript</span></th><th class="num">توکن</th><th class="num">هزینه</th><th class="num">تأخیر</th><th class="num">گام</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td><a href="/runs/{{ r.id }}">{{ r.id | fa_digits }}</a></td>
+        <td style="white-space:nowrap">{{ r.created_at | fa_datetime }}</td>
+        <td class="en">{{ r.model or "—" }}</td>
+        <td>{{ INTENT_FA.get(r.intent, r.intent) }}</td>
+        <td><span class="chip {{ 'ok' if r.status == 'executed' else ('bad' if r.status == 'failed' else '') }}">{{ STATUS_FA.get(r.status, r.status) }}</span></td>
+        <td>{{ DECISION_FA.get(r.decision, "—") }}</td>
+        <td>{{ r.excerpt or "" }}{% if r.error %}<div class="muted" style="font-size:12px">⚠️ {{ r.error }}</div>{% endif %}</td>
+        <td class="num">{{ r.tokens | fa_number }}</td><td class="num">{{ r.cost | fa_usd }}</td>
+        <td class="num">{{ r.latency_ms | fa_ms }}</td>
+        <td class="num">{{ r.steps | fa_number }}{% if r.validation_errors %} <span class="chip warn" title="JSON validation failures">{{ r.validation_errors | fa_digits }}✗</span>{% endif %}</td>
+      </tr>
+    {% else %}<tr><td colspan="11" class="muted">موردی پیدا نشد.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  {% if pages > 1 %}
+  <p style="display:flex; gap:10px; align-items:center;">
+    {% if page > 1 %}<a class="button light" href="{{ page_url(page - 1) }}">قبلی</a>{% endif %}
+    <span class="muted">صفحهٔ {{ page | fa_digits }} از {{ pages | fa_digits }}</span>
+    {% if page < pages %}<a class="button light" href="{{ page_url(page + 1) }}">بعدی</a>{% endif %}
+  </p>
+  {% endif %}
+</div>
+{% endblock %}

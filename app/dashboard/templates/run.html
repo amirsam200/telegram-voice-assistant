@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}اجرای {{ run.id }}{% endblock %}
+{% block content %}
+<p><a href="/logs">← بازگشت به گزارش اجراها</a></p>
+<section class="grid kpis">
+  <div class="card kpi"><div class="label">وضعیت <span class="en">Status</span></div>
+    <div class="value" style="font-size:18px">{{ STATUS_FA.get(run.status, run.status) }}</div>
+    <div class="sub">تصمیم: {{ DECISION_FA.get(run.decision, "—") }}{% if run.feedback %} · {{ "👍" if run.feedback > 0 else "👎" }}{% endif %}</div></div>
+  <div class="card kpi"><div class="label">توکن <span class="en">Tokens</span></div>
+    <div class="value">{{ run.total_tokens | fa_number }}</div><div class="sub">{{ run.steps | fa_number }} گام</div></div>
+  <div class="card kpi"><div class="label">هزینه <span class="en">Cost</span></div><div class="value">{{ run.cost | fa_usd }}</div></div>
+  <div class="card kpi"><div class="label">تأخیر کل <span class="en">Latency</span></div><div class="value">{{ run.latency_ms | fa_ms }}</div></div>
+  <div class="card kpi"><div class="label">خطای اعتبارسنجی <span class="en">JSON validation failures</span></div>
+    <div class="value">{{ run.validation_errors | fa_number }}</div></div>
+</section>
+
+<section class="grid charts">
+  <div class="card">
+    <h2>اجرای #{{ run.id | fa_digits }} · {{ run.created_at | fa_datetime }}</h2>
+    <p><b>مدل:</b> <span class="en" style="font-size:14px;color:inherit">{{ run.model or "—" }}</span>
+       · <b>نوع:</b> {{ INTENT_FA.get(run.intent, run.intent) }}
+       · <b>نسخهٔ پرامپت:</b> {{ run.prompt_version or "—" }}</p>
+    {% if run.voice_duration_s %}<p class="muted">🎙️ پیام صوتی {{ run.voice_duration_s | fa_number }} ثانیه،
+      اطمینان تشخیص {{ run.stt_confidence | fa_percent(0) }} (فایل صوتی پس از تبدیل حذف شده است)</p>{% endif %}
+    <h2>متن درخواست <span class="en">Transcript</span></h2>
+    <p>{{ run.input_text or "—" }}</p>
+    {% if run.reply_text %}<h2>پاسخ ربات <span class="en">Reply</span></h2><p style="white-space:pre-wrap">{{ run.reply_text }}</p>{% endif %}
+    {% if run.error %}<h2>خطا <span class="en">Error</span></h2><pre>{{ run.error }}</pre>{% endif %}
+  </div>
+  <div class="card">
+    <h2>اقدام پیشنهادی <span class="en">Action JSON</span></h2>
+    <pre>{{ run.action_json | pretty_json }}</pre>
+  </div>
+</section>
+
+<section class="card scroll" style="margin-top:12px;">
+  <h2>فراخوانی‌های مدل <span class="en">LLM calls</span></h2>
+  <table><thead><tr><th>#</th><th>کاربرد</th><th>وضعیت</th><th class="num">ورودی</th><th class="num">کش</th>
+    <th class="num">خروجی</th><th class="num">هزینه</th><th class="num">تأخیر</th></tr></thead>
+  <tbody>{% for c in llm_calls %}
+    <tr><td>{{ loop.index | fa_digits }}</td><td>{{ PURPOSE_FA.get(c.purpose, c.purpose) }} <span class="en">{{ c.purpose }}</span></td>
+      <td><span class="chip {{ 'ok' if c.status == 'ok' else 'bad' }}">{{ c.status }}</span>{% if c.error %} <span class="muted" style="font-size:12px">{{ c.error }}</span>{% endif %}</td>
+      <td class="num">{{ c.prompt_tokens | fa_number }}</td><td class="num">{{ c.cached_tokens | fa_number }}</td>
+      <td class="num">{{ c.completion_tokens | fa_number }}</td><td class="num">{{ c.cost_usd | fa_usd }}</td>
+      <td class="num">{{ c.latency_ms | fa_ms }}</td></tr>
+  {% else %}<tr><td colspan="8" class="muted">فراخوانی ثبت نشده است.</td></tr>{% endfor %}</tbody></table>
+</section>
+
+<section class="card scroll" style="margin-top:12px;">
+  <h2>فراخوانی ابزارها <span class="en">Tool calls</span></h2>
+  <table><thead><tr><th>ابزار</th><th>وضعیت</th><th class="num">تأخیر</th><th>ورودی / نتیجه</th></tr></thead>
+  <tbody>{% for t in tool_calls %}
+    <tr><td class="en" style="font-size:14px;color:inherit">{{ t.tool_name }}</td>
+      <td><span class="chip {{ 'ok' if t.status == 'success' else 'bad' }}">{{ t.status }}</span></td>
+      <td class="num">{{ t.latency_ms | fa_ms }}</td>
+      <td><pre>{{ t.arguments_json | pretty_json }}</pre><pre>{{ t.result_json | pretty_json }}</pre></td></tr>
+  {% else %}<tr><td colspan="4" class="muted">ابزاری فراخوانی نشده است.</td></tr>{% endfor %}</tbody></table>
+</section>
+{% endblock %}

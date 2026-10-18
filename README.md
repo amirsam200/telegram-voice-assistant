@@ -155,6 +155,42 @@ IDE's MCP settings (for VS Code, `.vscode/mcp.json` with `"servers": {"voice-ass
 
 Try it with the MCP Inspector: `npx @modelcontextprotocol/inspector docker compose run --rm -i --no-deps mcp`.
 
+## Usage and quality dashboard
+
+A read-only dashboard (FastAPI + Jinja2 + Chart.js, no frontend build) at http://127.0.0.1:8080:
+KPI cards (tokens today / 7 / 30 days, cost, latency P50/P95, success and confirmation rates),
+daily token and cost charts by model and purpose, latency and success/edit-rate trends, the most
+expensive runs, a quality table per model, a filterable run log with CSV export, and a run detail
+page (transcript, action JSON, tool calls, LLM calls, error). Labels are Persian with the English
+metric names; numbers use Persian digits.
+
+Data: every LLM request (including retries and failures) is written to `llm_calls` by the provider
+(`cost_usd` from `LLM_PRICES`). Quality comes from existing data: the user's decision (confirm,
+edit, cancel), tool success, `agent_runs.validation_errors`, retries, steps, clarifying questions,
+and the 👍/👎 buttons under each bot reply (`run_feedback`). The metric definitions are at the top
+of `app/dashboard/queries.py`.
+
+Budgets: `DAILY_TOKEN_BUDGET` and `MONTHLY_TOKEN_BUDGET` (Tehran day/month) are shown as progress
+bars; the owner gets a Telegram alert at 80% and 100%, once per period. With
+`BUDGET_HARD_STOP=true` the bot refuses new requests once a budget is used up.
+
+Demo data: the `migrate` service seeds 30 days of demo data once (a separate demo user; never
+counted in budgets; never retryable). Hide it with the toggle on the dashboard, or delete it with
+`docker compose run --rm migrate python -m app.db.demo --remove`.
+
+Access: only the owner, with a password. Set it up once:
+
+1. `docker compose run --rm -it --no-deps dashboard python -m app.dashboard.auth`, then put the
+   printed `DASHBOARD_PASSWORD_HASH=...` line into `.env`.
+2. Set `DASHBOARD_SECRET_KEY` (random) and `DASHBOARD_DB_PASSWORD` plus the matching
+   `DASHBOARD_DATABASE_URL`; `migrate` creates the read-only role `dashboard_ro` (SELECT only,
+   read-only transactions).
+3. `docker compose up -d`.
+
+The session cookie is signed, `SameSite=Strict`, 12 hours; sign-in attempts are rate limited.
+The run list and CSV show only the first 80 characters of a transcript; full email bodies appear
+only on a run's detail page. API keys and audio are never shown.
+
 ## Operations
 
 - **Logs** are JSON lines on stderr (`docker compose logs -f bot api`). Each line from the agent,
