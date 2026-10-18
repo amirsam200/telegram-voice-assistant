@@ -8,7 +8,7 @@ from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.agent import fa
-from app.agent.actions import Action, EmailAction, ScheduleAction
+from app.agent.actions import Action, AddContactAction, DeleteContactAction, EmailAction, ScheduleAction
 from app.agent.memory import learn_from_executed
 from app.db.models import AgentRun, AuditEvent, CalendarEvent, Email, RunStatus
 from app.tools.registry import ToolContext, ToolError, ToolInProgress, execute
@@ -67,8 +67,12 @@ def confirm_and_execute(session: Session, run_id: int, user_id: int, ctx: ToolCo
     try:
         if isinstance(action, ScheduleAction):
             message = _create_event(session, run, action, ctx)
-        else:
+        elif isinstance(action, EmailAction):
             message = _send_email(session, run, action, ctx)
+        elif isinstance(action, AddContactAction):
+            message = _add_contact(run, action, ctx)
+        else:
+            message = _delete_contact(run, action, ctx)
     except ToolInProgress:
         return ExecutionResult(False, ALREADY[RunStatus.confirmed])
     except ToolError as exc:
@@ -120,11 +124,33 @@ def _send_email(session: Session, run: AgentRun, action: EmailAction, ctx: ToolC
     return f"✅ ایمیل به {action.to} فرستاده شد."
 
 
+def _add_contact(run: AgentRun, action: AddContactAction, ctx: ToolContext) -> str:
+    args = {"name": action.name, "email": str(action.email)}
+    result = execute(ctx, "add_contact", args, idempotency_key=f"run:{run.id}:add_contact")
+    if result.get("created"):
+        return f"✅ مخاطب «{action.name}» با ایمیل {action.email} ذخیره شد."
+    return f"✅ ایمیل مخاطب «{action.name}» به {action.email} تغییر کرد."
+
+
+def _delete_contact(run: AgentRun, action: DeleteContactAction, ctx: ToolContext) -> str:
+    execute(ctx, "delete_contact", {"contact_id": action.contact_id},
+            idempotency_key=f"run:{run.id}:delete_contact")
+    return f"✅ مخاطب «{action.name}» حذف شد."
+
+
 def _error_message(action: Action, error: str) -> str:
     if isinstance(action, ScheduleAction):
         if "not configured" in error:
             return "❌ تقویم گوگل هنوز تنظیم نشده است، بنابراین جلسه ثبت نشد."
         return "❌ ثبت جلسه در تقویم گوگل ناموفق بود. لطفاً کمی بعد دوباره تلاش کنید."
+    if isinstance(action, AddContactAction):
+        return "❌ ذخیرهٔ مخاطب ناموفق بود. لطفاً دوباره تلاش کنید."
+    if isinstance(action, DeleteContactAction):
+        if "not found" in error:
+            return "❌ این مخاطب پیدا نشد؛ شاید قبلاً حذف شده باشد."
+        return "❌ حذف مخاطب ناموفق بود. لطفاً دوباره تلاش کنید."
+    if "not configured" in error or "scope" in error:
+        return "❌ ارسال ایمیل از Gmail هنوز تنظیم نشده است. ورود به حساب گوگل را دوباره انجام دهید."
     return "❌ ارسال ایمیل ناموفق بود. لطفاً کمی بعد دوباره تلاش کنید."
 
 
@@ -163,6 +189,18 @@ def preview(action: Action) -> str:
             lines.append("مهمان‌ها: " + "، ".join(str(g) for g in action.guests))
         if action.description:
             lines.append(f"توضیحات: {action.description}")
+    elif isinstance(action, AddContactAction):
+        if action.previous_email:
+            lines = [
+                "👤 تغییر ایمیل مخاطب",
+                f"نام: {action.name}",
+                f"ایمیل فعلی: {action.previous_email}",
+                f"ایمیل جدید: {action.email}",
+            ]
+        else:
+            lines = ["👤 افزودن مخاطب", f"نام: {action.name}", f"ایمیل: {action.email}"]
+    elif isinstance(action, DeleteContactAction):
+        lines = ["🗑️ حذف مخاطب", f"نام: {action.name}", f"ایمیل: {action.email or 'بدون ایمیل'}"]
     else:
         lines = [
             "✉️ ارسال ایمیل",

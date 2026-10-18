@@ -1,4 +1,7 @@
-"""One-time Google OAuth for the owner's calendar (Desktop app client, scope calendar.events).
+"""One-time Google OAuth for the owner's account (Desktop app client).
+
+Scopes: calendar.events (create events) and gmail.send (send email from the owner's Gmail).
+Run it again whenever the scopes change.
 
 Opens the browser (or prints the URL to open), then prints the GOOGLE_* lines for .env.
 With --write-env it writes them into .env instead of printing them.
@@ -17,7 +20,10 @@ from pathlib import Path
 
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
+SCOPES = [
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/gmail.send",
+]
 PORT = 8765
 
 
@@ -68,7 +74,7 @@ def main() -> int:
         open_browser=can_open,
         access_type="offline",
         prompt="consent",
-        authorization_prompt_message="Open this URL in your browser and allow calendar access:\n{url}\n",
+        authorization_prompt_message="Open this URL in your browser and allow calendar and Gmail send access:\n{url}\n",
         success_message="Done. You can close this tab and return to the terminal.",
     )
     if not credentials.refresh_token:

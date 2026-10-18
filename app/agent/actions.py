@@ -4,6 +4,7 @@ import datetime as dt
 from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic.json_schema import SkipJsonSchema
 
 from app.agent.fa import has_persian, parse_date, parse_time
 
@@ -72,6 +73,50 @@ class EmailAction(BaseModel):
         return [str(self.to)] + [str(c.email) for c in self.new_contacts]
 
 
+class AddContactAction(BaseModel):
+    type: Literal["add_contact"] = "add_contact"
+    name: str = Field(min_length=1, max_length=200, description="The contact's name as the user said it.")
+    email: EmailStr = Field(description="The address exactly as the user spelled it.")
+    # Filled in by the app (not the model) when a contact with this name already exists.
+    previous_email: SkipJsonSchema[str | None] = None
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, v: str) -> str:
+        v = " ".join(v.split())
+        if not v:
+            raise ValueError("name must not be empty")
+        return v
+
+    @field_validator("email")
+    @classmethod
+    def _lower(cls, v: str) -> str:
+        return str(v).lower()
+
+    @property
+    def new_contacts(self) -> list[NewContact]:
+        return []
+
+    def emails(self) -> list[str]:
+        return [str(self.email)]
+
+
+class DeleteContactAction(BaseModel):
+    """Only created from the /delcontact command, never by the model."""
+
+    type: Literal["delete_contact"] = "delete_contact"
+    contact_id: int
+    name: str
+    email: str | None = None
+
+    @property
+    def new_contacts(self) -> list[NewContact]:
+        return []
+
+    def emails(self) -> list[str]:
+        return []
+
+
 class Clarification(BaseModel):
     question: str = Field(min_length=1, max_length=1000, description="One short question in Persian.")
 
@@ -83,4 +128,10 @@ class Clarification(BaseModel):
         return v.strip()
 
 
-Action = ScheduleAction | EmailAction
+ContactAction = AddContactAction | DeleteContactAction
+Action = ScheduleAction | EmailAction | AddContactAction | DeleteContactAction
+
+
+def intent_of(action: Action) -> str:
+    """The agent_runs.intent value for an action."""
+    return "contact" if isinstance(action, (AddContactAction, DeleteContactAction)) else action.type

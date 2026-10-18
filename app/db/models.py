@@ -45,6 +45,7 @@ class TimestampMixin:
 class Intent(str, enum.Enum):
     schedule = "schedule"
     email = "email"
+    contact = "contact"  # add or delete a saved contact
     unknown = "unknown"
 
 

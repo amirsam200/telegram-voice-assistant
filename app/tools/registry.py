@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.agent import fa
 from app.db.models import Contact, MemoryFact, ToolCall
 from app.tools.google_calendar import CalendarClient, CalendarError, event_id_for
-from app.tools.resend_client import ResendError
+from app.tools.mailer import EmailError, get_sender
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class ToolInProgress(ToolError):
     pass
 
 
-EmailSender = Callable[..., str]  # same signature as resend_client.send_email
+EmailSender = Callable[..., str]  # same signature as the providers in app.tools.mailer
 
 
 @dataclass
@@ -61,6 +61,15 @@ class FindContactArgs(BaseModel):
 class SaveContactArgs(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     email: EmailStr
+
+
+class AddContactArgs(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    email: EmailStr
+
+
+class DeleteContactArgs(BaseModel):
+    contact_id: int
 
 
 class RememberArgs(BaseModel):
@@ -159,6 +168,40 @@ def save_contact(ctx: ToolContext, args: SaveContactArgs) -> dict:
     return {"created": created, "contact": _contact_dict(contact)}
 
 
+def contact_by_name(session: Session, user_id: int, name: str) -> Contact | None:
+    """The contact whose name is exactly this one (after Persian normalisation)."""
+    wanted = fa.normalize(name)
+    for contact in session.scalars(select(Contact).where(Contact.user_id == user_id).order_by(Contact.id)):
+        if fa.normalize(contact.name) == wanted:
+            return contact
+    return None
+
+
+def add_contact(ctx: ToolContext, args: AddContactArgs, idempotency_key: str) -> dict:
+    """Confirmed by the user: save a contact, or replace the email of the contact with this name."""
+    email = str(args.email).lower()
+    contact = contact_by_name(ctx.session, ctx.user_id, args.name)
+    created = contact is None
+    previous = None if created else contact.email
+    if created:
+        contact = Contact(user_id=ctx.user_id, name=args.name, email=email, aliases=[])
+        ctx.session.add(contact)
+    else:
+        contact.email = email
+    ctx.session.flush()
+    return {"created": created, "previous_email": previous, "contact": _contact_dict(contact)}
+
+
+def delete_contact(ctx: ToolContext, args: DeleteContactArgs, idempotency_key: str) -> dict:
+    contact = ctx.session.get(Contact, args.contact_id)
+    if contact is None or contact.user_id != ctx.user_id:
+        raise ToolError("contact not found (it may already be deleted)")
+    deleted = _contact_dict(contact)
+    ctx.session.delete(contact)
+    ctx.session.flush()
+    return {"deleted": deleted}
+
+
 def remember(ctx: ToolContext, args: RememberArgs) -> dict:
     fact = ctx.session.scalar(
         select(MemoryFact).where(MemoryFact.user_id == ctx.user_id, MemoryFact.key == args.key)
@@ -202,7 +245,7 @@ def create_calendar_event(ctx: ToolContext, args: CreateEventArgs, idempotency_k
 def send_email(ctx: ToolContext, args: SendEmailArgs, idempotency_key: str) -> dict:
     sender = ctx.send_email
     if sender is None:
-        from app.tools.resend_client import send_email as sender
+        sender = get_sender()
     html = '<div dir="rtl" style="font-family:Tahoma,sans-serif;white-space:pre-wrap">{}</div>'.format(
         args.body.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     )
@@ -241,12 +284,16 @@ TOOLS: dict[str, Tool] = {
              FindContactArgs, find_contact),
         Tool("save_contact", "Save a contact's name and email, or add the name as an alias.",
              SaveContactArgs, save_contact),
+        Tool("add_contact", "Save a contact the user confirmed, or replace the email of the contact with that name.",
+             AddContactArgs, add_contact, side_effect=True),
+        Tool("delete_contact", "Delete a saved contact the user confirmed.",
+             DeleteContactArgs, delete_contact, side_effect=True),
         Tool("remember", "Store a preference or fact about the user.", RememberArgs, remember),
         Tool("list_calendar_events", "List the user's calendar events on one day.",
              DateArgs, list_calendar_events),
         Tool("create_calendar_event", "Create a Google Calendar event (Asia/Tehran) and invite guests.",
              CreateEventArgs, create_calendar_event, side_effect=True),
-        Tool("send_email", "Send an email from the user with Resend.",
+        Tool("send_email", "Send an email from the user (Gmail or Resend, per EMAIL_PROVIDER).",
              SendEmailArgs, send_email, side_effect=True),
     ]
 }
@@ -299,7 +346,7 @@ def execute(
             result = tool.func(ctx, args)
     except ValidationError as exc:
         error = f"invalid arguments: {exc.errors(include_url=False)}"
-    except (CalendarError, ResendError, ToolError, ValueError) as exc:
+    except (CalendarError, EmailError, ToolError, ValueError) as exc:
         error = str(exc)
     else:
         record.result_json = _jsonable(result)

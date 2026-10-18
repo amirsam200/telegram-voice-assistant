@@ -54,7 +54,7 @@ def test_lookup_then_email_proposal(session, owner, ctx) -> None:
     assert run.status == RunStatus.pending_confirmation
     assert run.intent == Intent.email
     assert run.action_json["to"] == "sara.mohammadi@example.com"
-    assert (run.tokens, run.steps, run.prompt_version) == (220, 2, "v1")
+    assert (run.tokens, run.steps, run.prompt_version) == (220, 2, "v2")
     calls = session.scalars(select(ToolCall).where(ToolCall.run_id == run.id)).all()
     assert [c.tool_name for c in calls] == ["find_contact"]
 

@@ -24,6 +24,8 @@ from telegram.ext import (
     filters,
 )
 
+from app.agent import contacts
+from app.agent.actions import AddContactAction
 from app.agent.agent import run_agent
 from app.agent.executor import cancel, confirm_and_execute, preview
 from app.agent.provider import DeepSeekProvider, LLMError
@@ -48,11 +50,17 @@ HELP_TEXT = (
     "راهنما:\n"
     "• جلسه: «فردا ساعت ده صبح با علی جلسه بودجه بذار».\n"
     "• ایمیل: «به سارا ایمیل بزن و بگو گزارش آماده است».\n"
+    "• مخاطب: «رضا احمدی را با ایمیل reza@example.com به مخاطبان اضافه کن».\n"
     "• پیام متنی هم مثل پیام صوتی پردازش می‌شود.\n"
     "پیش از انجام هر کاری پیش‌نمایش آن را می‌بینید و با «تأیید» اجرا می‌شود.\n"
+    "• /addcontact نام ایمیل  افزودن مخاطب\n"
+    "• /contacts  فهرست مخاطبان\n"
+    "• /delcontact نام  حذف مخاطب\n"
     "• /start شروع\n"
     "• /help همین راهنما"
 )
+
+OWNER_ONLY_TEXT = "مدیریت مخاطبان فقط برای مالک ربات مجاز است."
 
 ERROR_TEXT = "متأسفم، خطایی رخ داد. لطفاً دوباره تلاش کنید."
 REPEAT_TEXT = "متأسفم، صدایتان را واضح متوجه نشدم. لطفاً آرام‌تر و شمرده‌تر دوباره بگویید."
@@ -69,12 +77,12 @@ def _provider() -> DeepSeekProvider:
     return DeepSeekProvider()
 
 
-def _keyboard(run_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ تأیید", callback_data=f"run:{run_id}:confirm"),
-        InlineKeyboardButton("✏️ ویرایش", callback_data=f"run:{run_id}:edit"),
-        InlineKeyboardButton("❌ لغو", callback_data=f"run:{run_id}:cancel"),
-    ]])
+def _keyboard(run_id: int, editable: bool = True) -> InlineKeyboardMarkup:
+    buttons = [InlineKeyboardButton("✅ تأیید", callback_data=f"run:{run_id}:confirm")]
+    if editable:
+        buttons.append(InlineKeyboardButton("✏️ ویرایش", callback_data=f"run:{run_id}:edit"))
+    buttons.append(InlineKeyboardButton("❌ لغو", callback_data=f"run:{run_id}:cancel"))
+    return InlineKeyboardMarkup([buttons])
 
 
 async def guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -141,6 +149,12 @@ def _run_agent(user_id: int, text: str, voice_id: int | None, edit_run_id: int |
             edit_of = None
         ctx = ToolContext(session=session, user_id=user_id)
         result = run_agent(session, user, text, _provider(), ctx, voice_message_id=voice_id, edit_of=edit_of)
+        if isinstance(result.action, AddContactAction) and user.telegram_user_id != get_settings().owner_telegram_id:
+            run = session.get(AgentRun, result.run_id)
+            run.status = RunStatus.rejected
+            run.reply_text = OWNER_ONLY_TEXT
+            session.commit()
+            return result.run_id, OWNER_ONLY_TEXT, False
         if result.action is not None:
             reply = preview(result.action)
             session.get(AgentRun, result.run_id).reply_text = reply
@@ -165,6 +179,21 @@ def _cancel(run_id: int, user_id: int) -> bool:
         return cancel(session, run_id, user_id)
     finally:
         session.close()
+
+
+def _propose_add(user_id: int, args: list[str], input_text: str) -> contacts.Proposal:
+    with session_scope() as session:
+        return contacts.propose(session, user_id, contacts.parse_add(args), input_text)
+
+
+def _propose_delete(user_id: int, args: list[str], input_text: str) -> contacts.Proposal:
+    with session_scope() as session:
+        return contacts.propose(session, user_id, contacts.resolve_delete(session, user_id, args), input_text)
+
+
+def _contacts_text(user_id: int) -> str:
+    with session_scope() as session:
+        return contacts.list_text(session, user_id)
 
 
 def _run_status(run_id: int, user_id: int):
@@ -234,6 +263,42 @@ async def voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _handle_request(update, context, user_id, result.text, voice_id)
 
 
+async def _owner_user_id(update: Update) -> int | None:
+    """The owner's users.id, or None (after telling the user) for anyone else on the allowlist."""
+    tg_user = update.effective_user
+    if tg_user.id != get_settings().owner_telegram_id:
+        await update.effective_message.reply_text(OWNER_ONLY_TEXT)
+        return None
+    return await asyncio.to_thread(_ensure_user, tg_user.id, tg_user.full_name)
+
+
+async def _propose_command(update: Update, context: ContextTypes.DEFAULT_TYPE, build) -> None:
+    user_id = await _owner_user_id(update)
+    if user_id is None:
+        return
+    message = update.effective_message
+    try:
+        proposal = await asyncio.to_thread(build, user_id, list(context.args or []), message.text or "")
+    except contacts.CommandError as exc:
+        await message.reply_text(str(exc))
+        return
+    await message.reply_text(proposal.preview, reply_markup=_keyboard(proposal.run_id, editable=False))
+
+
+async def add_contact_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _propose_command(update, context, _propose_add)
+
+
+async def delete_contact_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _propose_command(update, context, _propose_delete)
+
+
+async def contacts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = await _owner_user_id(update)
+    if user_id is not None:
+        await update.effective_message.reply_text(await asyncio.to_thread(_contacts_text, user_id))
+
+
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     match = CALLBACK.match(query.data or "")
@@ -286,6 +351,9 @@ def build_application() -> Application:
     app.add_handler(TypeHandler(Update, guard), group=-1)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("addcontact", add_contact_command))
+    app.add_handler(CommandHandler("contacts", contacts_command))
+    app.add_handler(CommandHandler("delcontact", delete_contact_command))
     app.add_handler(MessageHandler(filters.VOICE, voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message))
     app.add_handler(CallbackQueryHandler(button, pattern=r"^run:"))

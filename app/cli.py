@@ -8,7 +8,7 @@ import argparse
 import sys
 
 from app.config import get_settings
-from app.tools.resend_client import ResendError, send_email
+from app.tools.mailer import EmailError, get_sender
 
 
 def send_test_email(to: str | None) -> int:
@@ -17,20 +17,20 @@ def send_test_email(to: str | None) -> int:
         print("No recipient: set OWNER_EMAIL in .env or pass --to.", file=sys.stderr)
         return 2
     try:
-        message_id = send_email(
+        message_id = get_sender()(
             to=recipient,
             subject="ایمیل آزمایشی دستیار صوتی",
-            text="سلام! این یک ایمیل آزمایشی است. کلید Resend درست کار می‌کند.",
+            text="سلام! این یک ایمیل آزمایشی است. ارسال ایمیل درست کار می‌کند.",
             html=(
                 '<div dir="rtl" style="font-family:Tahoma,sans-serif">'
-                "<p>سلام!</p><p>این یک ایمیل آزمایشی است. کلید Resend درست کار می‌کند.</p>"
+                "<p>سلام!</p><p>این یک ایمیل آزمایشی است. ارسال ایمیل درست کار می‌کند.</p>"
                 "</div>"
             ),
         )
-    except ResendError as exc:
+    except EmailError as exc:
         print(f"Failed: {exc}", file=sys.stderr)
         return 1
-    print(f"Sent test email to {recipient} (id {message_id})")
+    print(f"Sent test email to {recipient} via {get_settings().email_provider} (id {message_id})")
     return 0
 
 

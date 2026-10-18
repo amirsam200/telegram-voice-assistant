@@ -112,7 +112,7 @@ def build_context(
 
 
 def _emails_in_action(action: dict) -> list[str]:
-    emails = [action.get("to")] if action.get("to") else []
+    emails = [action.get(k) for k in ("to", "email") if action.get(k)]
     emails += action.get("guests", [])
     emails += [c.get("email") for c in action.get("new_contacts", []) if c.get("email")]
     return [e for e in emails if e]

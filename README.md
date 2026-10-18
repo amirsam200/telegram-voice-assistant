@@ -33,27 +33,32 @@ Status: **02 Agent** (speech to text, DeepSeek agent, tools, confirmation, memor
 2. Copy `.env.example` to `.env` and fill in the values. `.env` is git-ignored; never commit it.
    - `TELEGRAM_BOT_TOKEN` from @BotFather, `ALLOWED_USER_IDS` from @userinfobot
      (comma-separated; the first ID is the owner).
-   - `RESEND_API_KEY`, `EMAIL_FROM` (use `onboarding@resend.dev` until you verify a domain;
-     it can then only send to your Resend account's email).
+   - `EMAIL_PROVIDER`: `gmail` (default) sends from the owner's own Gmail through the Gmail API and
+     reaches any address; it uses the Google sign-in below. `resend` uses `RESEND_API_KEY` and
+     `EMAIL_FROM` instead (with `onboarding@resend.dev`, i.e. no verified domain, Resend only
+     delivers to your Resend account's own email).
    - `OWNER_NAME`, `OWNER_EMAIL` for the seed script and the test email.
    - `DATABASE_URL` must use the same user, password and database as `POSTGRES_*`, with host `db`.
    - `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL`: any OpenAI-compatible endpoint, e.g.
      `https://api.deepseek.com` with a DeepSeek key, or `https://api.avalai.ir/v1` with an AvalAI key.
 
-## Google Calendar setup (one time)
+## Google setup: Calendar and Gmail (one time)
 
-Events are created in the owner's Google Calendar with OAuth 2.0 (scope `calendar.events`).
+Events are created in the owner's Google Calendar, and with `EMAIL_PROVIDER=gmail` emails are sent
+from the owner's Gmail, with one OAuth 2.0 sign-in (scopes `calendar.events` and `gmail.send`).
 
 1. In [Google Cloud Console](https://console.cloud.google.com/) create a project and enable the
-   **Google Calendar API**.
-2. **OAuth consent screen**: user type *External*, fill in the app name, and add your own Google
-   account under **Test users**.
+   **Google Calendar API** and the **Gmail API**.
+2. **OAuth consent screen**: user type *External*, fill in the app name, add the scopes
+   `.../auth/calendar.events` and `.../auth/gmail.send`, and add your own Google account under
+   **Test users**.
 3. **Credentials → Create credentials → OAuth client ID → Desktop app**. Download the JSON and save it
    as `credentials.json` in the project root (it is git-ignored; on Windows check it is not
    `credentials.json.json`).
 4. Run the one-time auth script. It prints a Google URL (and opens it when a browser is available);
-   sign in, allow access, and the script writes `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and
-   `GOOGLE_REFRESH_TOKEN` into `.env`. Leave out `--write-env` to print the lines instead.
+   sign in, tick **both** permissions, and the script writes `GOOGLE_CLIENT_ID`,
+   `GOOGLE_CLIENT_SECRET` and `GOOGLE_REFRESH_TOKEN` into `.env`. Leave out `--write-env` to print
+   the lines instead. Run it again whenever the scopes change (the old token lacks the new scope).
 
    On Windows PowerShell:
 
@@ -70,6 +75,18 @@ Events are created in the owner's Google Calendar with OAuth 2.0 (scope `calenda
 
 Events use the Asia/Tehran time zone, include attendees, and are created with `sendUpdates=all`, so
 guests get Google's invitation email.
+
+## Contacts from Telegram (owner only)
+
+- `/addcontact <name> <email>`: the last word is the email, the rest is the name, e.g.
+  `/addcontact رضا احمدی reza@example.com`. Adding a name that already exists changes its email.
+- `/contacts`: list saved contacts.
+- `/delcontact <name or email>`: delete one contact (exact name, alias or email; a partial name
+  only when it matches a single contact).
+- A voice or text request («رضا احمدی را با ایمیل ... به مخاطبان اضافه کن») works too.
+
+Every add or delete shows a preview and runs only after **Confirm**, like events and emails. Email
+addresses are validated, and only the owner (the first ID in `ALLOWED_USER_IDS`) may change contacts.
 
 ## Run
 
@@ -96,7 +113,7 @@ docker compose run --rm migrate pytest -m llm
 
 ## Useful commands
 
-Send one test email to `OWNER_EMAIL`:
+Send one test email to `OWNER_EMAIL` with the configured `EMAIL_PROVIDER`:
 
 ```bash
 docker compose run --rm migrate python -m app.cli send-test-email
@@ -126,8 +143,8 @@ docker compose run --rm --build -v ./migrations:/app/migrations migrate alembic 
 ```
 app/bot     Telegram bot, confirmation buttons
 app/stt     ffmpeg + Vosk speech to text
-app/agent   provider, system prompt, agent loop, context, executor, memory
-app/tools   tool registry, Google Calendar, Resend
+app/agent   provider, system prompt, agent loop, context, executor, memory, contacts
+app/tools   tool registry, Google Calendar, Gmail, Resend
 app/db      models, session, seed       app/api   FastAPI     app/mcp  (step 03)
 migrations/ Alembic                     scripts/  google_auth.py / .ps1
 tests/      pytest                      docs/SPEC.md  spec

@@ -11,7 +11,8 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy.orm import Session
 
 from app.agent import fa
-from app.agent.actions import Action, Clarification, EmailAction, ScheduleAction
+from app.agent.actions import Action, AddContactAction, Clarification, EmailAction, ScheduleAction, intent_of
+from app.agent.contacts import with_previous_email
 from app.agent.context import build_context
 from app.agent.provider import LLMError, LLMProvider
 from app.db.models import AgentRun, Intent, RunStatus, User
@@ -19,7 +20,7 @@ from app.tools.registry import TOOLS, ToolContext, ToolError, execute
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 SYSTEM_PROMPT = (Path(__file__).parent / "prompts" / f"system_{PROMPT_VERSION}.md").read_text(encoding="utf-8")
 
 MAX_STEPS = 6
@@ -41,6 +42,7 @@ def _final_tool(name: str, description: str, model: type[BaseModel]) -> dict:
 FINAL_TOOLS = {
     "propose_schedule": (ScheduleAction, "Finish: propose one calendar event for the user to confirm."),
     "propose_email": (EmailAction, "Finish: propose one email for the user to confirm."),
+    "propose_contact": (AddContactAction, "Finish: propose saving one contact (name + email the user spelled out)."),
     "ask_clarification": (Clarification, "Finish: ask the user one short question in Persian."),
 }
 
@@ -62,8 +64,13 @@ class _Rejected(Exception):
     """A final answer failed validation; the message goes back to the model."""
 
 
-def _check_action(action: Action, ctx: ToolContext, trusted: set[str], transcript: str) -> None:
+def _check_action(action: Action, ctx: ToolContext, trusted: set[str], transcript: str) -> Action:
     """Rules Pydantic cannot check alone: no invented addresses, nothing in the past."""
+    if isinstance(action, AddContactAction):
+        # A spoken address rarely appears verbatim in the transcript ("... at gmail dot com"); the
+        # preview shows the exact address, and saving a contact sends nothing until a later email
+        # is confirmed on its own.
+        return with_previous_email(ctx.session, ctx.user_id, action)
     transcript_norm = fa.normalize(transcript)
     for email in action.emails():
         e = email.lower()
@@ -80,6 +87,7 @@ def _check_action(action: Action, ctx: ToolContext, trusted: set[str], transcrip
                 f"{action.date} {action.time} is in the past (now is {now:%Y-%m-%d %H:%M} Tehran). "
                 "Use a future date or ask the user."
             )
+    return action
 
 
 def run_agent(
@@ -136,7 +144,7 @@ def run_agent(
                 else:
                     messages.append(response.as_message())
                     messages.append({"role": "user", "content": "Finish by calling exactly one of "
-                                     "propose_schedule, propose_email or ask_clarification."})
+                                     "propose_schedule, propose_email, propose_contact or ask_clarification."})
                 continue
 
             messages.append(response.as_message())
@@ -165,7 +173,7 @@ def run_agent(
     run.tokens = prompt_tokens + completion_tokens
     run.latency_ms = int((time.monotonic() - started) * 1000)
     if result.action is not None:
-        run.intent = Intent(result.action.type)
+        run.intent = Intent(intent_of(result.action))
         run.action_json = result.action.model_dump(mode="json")
         run.status = RunStatus.pending_confirmation
     elif result.question is not None:
@@ -196,8 +204,7 @@ def _finish(name: str, arguments: str, ctx: ToolContext, trusted: set[str], tran
         if isinstance(parsed, Clarification):
             result.question = parsed.question
         else:
-            _check_action(parsed, ctx, trusted, transcript)
-            result.action = parsed
+            result.action = _check_action(parsed, ctx, trusted, transcript)
         return {"ok": True}
     except json.JSONDecodeError as exc:
         return {"error": f"arguments are not valid JSON: {exc}"}

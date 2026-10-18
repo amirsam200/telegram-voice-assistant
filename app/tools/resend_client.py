@@ -3,11 +3,12 @@
 import httpx
 
 from app.config import get_settings
+from app.tools.mailer import EmailError
 
 RESEND_URL = "https://api.resend.com/emails"
 
 
-class ResendError(RuntimeError):
+class ResendError(EmailError):
     pass
 
 

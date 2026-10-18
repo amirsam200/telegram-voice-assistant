@@ -5,10 +5,9 @@ import hashlib
 from typing import Any, Protocol
 
 from app.config import get_settings
+from app.tools import google_oauth
 
-SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 API = "https://www.googleapis.com/calendar/v3"
-TOKEN_URI = "https://oauth2.googleapis.com/token"
 
 
 class CalendarError(RuntimeError):
@@ -37,23 +36,14 @@ def event_id_for(idempotency_key: str) -> str:
 class GoogleCalendarClient:
     def __init__(self) -> None:
         from google.auth.transport.requests import AuthorizedSession
-        from google.oauth2.credentials import Credentials
 
         s = get_settings()
-        if not (s.google_client_id and s.google_client_secret and s.google_refresh_token):
+        if not google_oauth.is_configured():
             raise CalendarError(
                 "Google Calendar is not configured: set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and "
                 "GOOGLE_REFRESH_TOKEN (run scripts/google_auth.py)"
             )
-        credentials = Credentials(
-            token=None,
-            refresh_token=s.google_refresh_token,
-            client_id=s.google_client_id,
-            client_secret=s.google_client_secret,
-            token_uri=TOKEN_URI,
-            scopes=SCOPES,
-        )
-        self._session = AuthorizedSession(credentials)
+        self._session = AuthorizedSession(google_oauth.credentials())
         self._calendar_id = s.google_calendar_id or "primary"
         self._timezone = s.timezone
 

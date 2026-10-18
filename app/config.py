@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     owner_name: str = ""
     owner_email: str = ""
 
+    # Email: "gmail" sends from the owner's Gmail (Google sign-in), "resend" uses Resend.
+    email_provider: str = "gmail"
     resend_api_key: str = ""
     email_from: str = "onboarding@resend.dev"
 
@@ -31,7 +33,7 @@ class Settings(BaseSettings):
     llm_timeout_s: float = 60.0
     llm_max_retries: int = 3
 
-    # Google Calendar
+    # Google (Calendar, and Gmail when EMAIL_PROVIDER=gmail)
     google_client_id: str = ""
     google_client_secret: str = ""
     google_refresh_token: str = ""
