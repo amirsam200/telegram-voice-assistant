@@ -39,10 +39,11 @@ def seed() -> None:
         owner.email = settings.owner_email or owner.email
         session.flush()
 
-        existing = set(session.scalars(select(Contact.email).where(Contact.user_id == owner.id)))
+        # Match by name so a contact whose email was edited is not seeded again.
+        existing = set(session.scalars(select(Contact.name).where(Contact.user_id == owner.id)))
         added = 0
         for data in SAMPLE_CONTACTS:
-            if data["email"] not in existing:
+            if data["name"] not in existing:
                 session.add(Contact(user_id=owner.id, **data))
                 added += 1
 
