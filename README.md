@@ -1,4 +1,36 @@
-# Persian Voice Assistant
+# Persian Voice Assistant · دستیار صوتی فارسی
+
+> یک دستیار شخصی در تلگرام: پیام صوتی فارسی می‌فرستی، ایجنت هوش مصنوعی آن را می‌فهمد و بعد از تأیید تو، جلسه را در Google Calendar ثبت می‌کند یا ایمیل می‌فرستد.
+>
+> A Telegram assistant: send a Persian voice note, an AI agent understands it and — after you confirm — creates a Google Calendar event or sends an email.
+
+**Built with AI-assisted coding (Claude Code)** — from a written spec (`docs/SPEC.md`) to a tested, dockerized app, in 4 staged prompts (`prompts/`).
+
+## Demo
+
+**Telegram bot**
+
+![bot](docs/screenshots/bot.png)
+
+**Usage & quality dashboard** — tokens, cost, P50/P95 latency, success and confirmation rate *(screenshots use the built-in demo data)*
+
+![dashboard](docs/screenshots/dashboard.png)
+
+**Run logs** — every request with its model, decision, status, tokens, cost and latency
+
+![runs](docs/screenshots/runs.png)
+
+## Highlights
+- **Voice → action:** Persian speech-to-text (Vosk + ffmpeg) → LLM agent with tool calling → confirm / edit / cancel buttons → action.
+- **Real integrations:** Google Calendar API, Gmail API (OAuth), Telegram Bot API.
+- **Safe by design:** nothing is sent without the user's confirmation; each action runs at most once; rate limits; secrets only in `.env`.
+- **Backend:** Python, PostgreSQL + SQLAlchemy + Alembic, FastAPI admin API, MCP server exposing the agent's tools.
+- **Observability:** JSON logs with run IDs, token and cost tracking per LLM call, daily/monthly token budgets with Telegram alerts, a password-protected dashboard (P50/P95 latency, success rate).
+- **Runs with one command:** Docker Compose (`db`, `migrate`, `bot`, `api`, `dashboard`, `mcp`).
+
+> This is a personal project that runs locally with your own API keys — see **Setup** below.
+
+---
 
 A personal Telegram assistant: send a Persian voice message, and it schedules a
 calendar event or sends an email on your behalf after you confirm.
